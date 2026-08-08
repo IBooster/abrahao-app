@@ -1,0 +1,26 @@
+# Segredos
+.env
+.env.local
+*.pem
+*.key
+
+# Planilhas: dado financeiro real do escritorio nao vai para o repositorio
+planilhas/
+*.xlsx
+*.xlsm
+*.xls
+backups/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Assistente financeiro</title>
+  <link rel="stylesheet" href="/static/app.css?v=1">
+</head>
+<body>
+  <header class="topo">
+    <div class="marca">
+      <span class="ponto" aria-hidden="true"></span>
+      Assistente financeiro
+    </div>
+    <div class="topo-acoes">
+      <span class="selo" id="selo-modo">somente leitura</span>
+      <button type="button" class="botao-texto" id="btn-estado">Fontes</button>
+      <button type="button" class="botao-texto" id="btn-recarregar">Recarregar</button>
+      <form method="post" action="/sair" class="inline"><button type="submit" class="botao-texto">Sair</button></form>
+    </div>
+  </header>
+
+  <main class="conversa" id="conversa">
+    <div class="boas-vindas" id="boas-vindas">
+      <h1>O que você quer saber?</h1>
+      <p>Pergunte em português. Eu leio as planilhas do escritório e respondo com o número e a origem dele.</p>
+      <div class="sugestoes" id="sugestoes"></div>
+    </div>
+  </main>
+
+  <div class="painel" id="painel" hidden>
+    <div class="painel-conteudo">
+      <button type="button" class="fechar" id="btn-fechar-painel" aria-label="Fechar">&times;</button>
+      <h2>Fontes carregadas</h2>
+      <div id="painel-corpo"></div>
+    </div>
+  </div>
+
+  <footer class="composicao">
+    <form id="form" autocomplete="off">
+      <textarea id="entrada" rows="1" placeholder="Quanto faturamos em julho?" aria-label="Sua pergunta"></textarea>
+      <button type="submit" id="enviar" aria-label="Enviar">Enviar</button>
+    </form>
+    <p class="aviso-rodape">Esta versão consulta e não altera. Lançamentos entram na próxima fase.</p>
+  </footer>
+
+  <script src="/static/app.js?v=1"></script>
+</body>
+</html>

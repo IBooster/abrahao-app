@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar - Assistente financeiro</title>
+  <link rel="stylesheet" href="/static/app.css?v=1">
+</head>
+<body class="tela-entrar">
+  <main class="cartao-entrar">
+    <div class="marca">
+      <span class="ponto" aria-hidden="true"></span>
+      Assistente financeiro
+    </div>
+    <h1>Entrar</h1>
+    <p class="sub">Consulta as planilhas do escritório. Esta versão não altera nenhum arquivo.</p>
+
+    <!--ERRO-->
+
+    <form method="post" action="/entrar" autocomplete="on">
+      <label for="usuario">Usuário</label>
+      <input id="usuario" name="usuario" type="text" required autofocus autocomplete="username">
+
+      <label for="senha">Senha</label>
+      <input id="senha" name="senha" type="password" required autocomplete="current-password">
+
+      <button type="submit">Entrar</button>
+    </form>
+
+    <p class="rodape">Somente leitura. Nenhuma planilha é modificada nesta fase.</p>
+  </main>
+</body>
+</html>

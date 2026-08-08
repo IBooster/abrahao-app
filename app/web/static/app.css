@@ -1,0 +1,272 @@
+:root{
+  --fundo:#F4F6F4;
+  --superficie:#FFFFFF;
+  --superficie-2:#FAFBF9;
+  --tinta:#171A17;
+  --tinta-2:#4A524B;
+  --tinta-3:#7C857D;
+  --regua:#DDE1DB;
+  --regua-2:#EBEEE8;
+  --acento:#0E5D4E;
+  --acento-fraco:#E2EDE8;
+  --ok:#1D6F52;
+  --atencao:#92610A;
+  --atencao-fundo:#F7EEDC;
+  --critico:#97303C;
+  --critico-fundo:#F7E5E7;
+  --sans:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;
+  --mono:ui-monospace,'Cascadia Mono',Consolas,'SF Mono',Menlo,monospace;
+  --sombra:0 1px 2px rgba(23,26,23,.05), 0 10px 30px -20px rgba(23,26,23,.35);
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --fundo:#0E1211; --superficie:#161B19; --superficie-2:#121716;
+    --tinta:#E8EBE7; --tinta-2:#A2ABA3; --tinta-3:#6F7A71;
+    --regua:#262E2A; --regua-2:#1E2523;
+    --acento:#4FBFA3; --acento-fraco:#16302A;
+    --ok:#4FBF8E; --atencao:#D19A32; --atencao-fundo:#2B2314;
+    --critico:#E0707E; --critico-fundo:#2C1619;
+    --sombra:0 1px 2px rgba(0,0,0,.4), 0 10px 30px -20px rgba(0,0,0,.8);
+  }
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--fundo); color:var(--tinta);
+  font-family:var(--sans); font-size:16px; line-height:1.6;
+  display:flex; flex-direction:column;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- topo ---------- */
+.topo{
+  display:flex; align-items:center; justify-content:space-between; gap:16px;
+  padding:12px 20px; border-bottom:1px solid var(--regua);
+  background:var(--superficie); position:sticky; top:0; z-index:10;
+}
+.marca{display:flex; align-items:center; gap:9px; font-weight:600; font-size:14.5px}
+.ponto{width:9px; height:9px; border-radius:50%; background:var(--acento); flex:none}
+.topo-acoes{display:flex; align-items:center; gap:6px}
+.inline{display:inline}
+.selo{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.06em;
+  text-transform:uppercase; background:var(--acento-fraco); color:var(--acento);
+  padding:3px 9px; border-radius:99px; white-space:nowrap;
+}
+.botao-texto{
+  background:none; border:none; color:var(--tinta-2); font-family:var(--sans);
+  font-size:13.5px; cursor:pointer; padding:6px 9px; border-radius:6px;
+}
+.botao-texto:hover{background:var(--superficie-2); color:var(--tinta)}
+.botao-texto:focus-visible{outline:2px solid var(--acento); outline-offset:1px}
+
+/* ---------- conversa ---------- */
+.conversa{
+  flex:1; overflow-y:auto; padding:28px 20px 12px;
+  display:flex; flex-direction:column; gap:22px;
+}
+.boas-vindas{max-width:720px; margin:8vh auto 0; text-align:center}
+.boas-vindas h1{font-size:27px; font-weight:650; margin:0 0 10px; letter-spacing:-.01em}
+.boas-vindas p{color:var(--tinta-2); margin:0 0 26px; font-size:15.5px}
+.sugestoes{display:flex; flex-wrap:wrap; gap:8px; justify-content:center}
+.sugestao{
+  background:var(--superficie); border:1px solid var(--regua); color:var(--tinta-2);
+  border-radius:99px; padding:8px 15px; font-size:13.5px; cursor:pointer;
+  font-family:var(--sans);
+}
+.sugestao:hover{border-color:var(--acento); color:var(--acento)}
+
+.turno{max-width:760px; width:100%; margin:0 auto}
+.msg-usuario{
+  align-self:flex-end; background:var(--acento); color:#fff;
+  padding:11px 16px; border-radius:16px 16px 4px 16px;
+  max-width:min(560px,85%); margin-left:auto; white-space:pre-wrap;
+}
+.msg-usuario.escuro{color:#0E1211}
+
+.resposta{
+  background:var(--superficie); border:1px solid var(--regua);
+  border-radius:12px; padding:20px 22px; box-shadow:var(--sombra);
+}
+.resposta h3{
+  margin:0 0 10px; font-size:12px; font-family:var(--mono);
+  letter-spacing:.08em; text-transform:uppercase; color:var(--acento);
+  font-weight:500;
+}
+.resposta .texto{margin:0 0 4px; white-space:pre-wrap}
+
+.resposta.bloqueada{border-left:3px solid var(--atencao)}
+.resposta.bloqueada h3{color:var(--atencao)}
+.resposta.erro{border-left:3px solid var(--critico)}
+.resposta.erro h3{color:var(--critico)}
+
+/* ---------- numeros ---------- */
+.numeros{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:1px; background:var(--regua); border:1px solid var(--regua);
+  border-radius:8px; overflow:hidden; margin:16px 0 4px;
+}
+.numero{background:var(--superficie-2); padding:12px 14px}
+.numero .rot{
+  display:block; font-family:var(--mono); font-size:10px; letter-spacing:.07em;
+  text-transform:uppercase; color:var(--tinta-3); margin-bottom:6px;
+}
+.numero .val{
+  display:block; font-size:19px; font-weight:600;
+  font-variant-numeric:tabular-nums; letter-spacing:-.01em;
+}
+
+/* ---------- detalhamento ---------- */
+details.linhas{margin-top:14px}
+details.linhas summary{
+  cursor:pointer; font-size:13.5px; color:var(--tinta-2); padding:7px 0;
+  list-style:none; display:flex; align-items:center; gap:7px;
+}
+details.linhas summary::-webkit-details-marker{display:none}
+details.linhas summary::before{content:'▸'; color:var(--tinta-3); font-size:11px}
+details.linhas[open] summary::before{content:'▾'}
+details.linhas summary:hover{color:var(--tinta)}
+
+.tabela-wrap{overflow-x:auto; border:1px solid var(--regua-2); border-radius:8px; margin-top:8px}
+table.linhas-tab{border-collapse:collapse; width:100%; font-size:13px; min-width:460px}
+table.linhas-tab td{padding:9px 13px; border-bottom:1px solid var(--regua-2); vertical-align:top}
+table.linhas-tab tr:last-child td{border-bottom:none}
+table.linhas-tab .rotulo{font-weight:500}
+table.linhas-tab .detalhe{color:var(--tinta-3); font-size:12px; display:block; margin-top:2px}
+table.linhas-tab .origem{
+  color:var(--tinta-3); font-family:var(--mono); font-size:10.5px;
+  display:block; margin-top:3px; word-break:break-word;
+}
+table.linhas-tab .valor{
+  text-align:right; font-variant-numeric:tabular-nums; font-family:var(--mono);
+  font-size:12.5px; white-space:nowrap;
+}
+.marca-estado{
+  display:inline-block; font-family:var(--mono); font-size:9.5px;
+  letter-spacing:.05em; text-transform:uppercase; padding:2px 7px;
+  border-radius:99px; background:var(--superficie-2); color:var(--tinta-3);
+  border:1px solid var(--regua); margin-top:4px;
+}
+
+/* ---------- avisos ---------- */
+.aviso{
+  display:flex; gap:9px; align-items:flex-start;
+  background:var(--atencao-fundo); color:var(--atencao);
+  border-radius:8px; padding:10px 13px; margin-top:10px; font-size:13.5px;
+}
+.aviso.critico{background:var(--critico-fundo); color:var(--critico)}
+.aviso .icone{flex:none; font-weight:700; line-height:1.5}
+
+.fonte{
+  margin-top:12px; padding-top:11px; border-top:1px solid var(--regua-2);
+  font-size:11.5px; color:var(--tinta-3); font-family:var(--mono);
+  word-break:break-word;
+}
+
+/* ---------- composicao ---------- */
+.composicao{
+  border-top:1px solid var(--regua); background:var(--superficie);
+  padding:14px 20px 10px; position:sticky; bottom:0;
+}
+.composicao form{
+  display:flex; gap:10px; align-items:flex-end;
+  max-width:760px; margin:0 auto;
+}
+#entrada{
+  flex:1; resize:none; border:1px solid var(--regua); border-radius:10px;
+  padding:12px 14px; font-family:var(--sans); font-size:15.5px; line-height:1.5;
+  background:var(--superficie-2); color:var(--tinta);
+  max-height:180px; overflow-y:auto;
+}
+#entrada:focus{outline:none; border-color:var(--acento)}
+#enviar{
+  background:var(--acento); color:#fff; border:none; border-radius:10px;
+  padding:12px 20px; font-family:var(--sans); font-size:14.5px; font-weight:600;
+  cursor:pointer; flex:none;
+}
+#enviar:disabled{opacity:.5; cursor:default}
+#enviar:focus-visible{outline:2px solid var(--tinta); outline-offset:2px}
+@media (prefers-color-scheme:dark){ #enviar{color:#0E1211} }
+.aviso-rodape{
+  text-align:center; font-size:11.5px; color:var(--tinta-3);
+  margin:9px 0 0; max-width:760px; margin-left:auto; margin-right:auto;
+}
+
+/* ---------- pensando ---------- */
+.pensando{display:flex; gap:5px; padding:4px 0}
+.pensando span{
+  width:6px; height:6px; border-radius:50%; background:var(--tinta-3);
+  animation:pulsa 1.3s infinite ease-in-out;
+}
+.pensando span:nth-child(2){animation-delay:.18s}
+.pensando span:nth-child(3){animation-delay:.36s}
+@keyframes pulsa{0%,60%,100%{opacity:.25} 30%{opacity:1}}
+@media (prefers-reduced-motion:reduce){
+  .pensando span{animation:none; opacity:.6}
+}
+
+/* ---------- painel ---------- */
+.painel{
+  position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:50;
+  display:flex; justify-content:flex-end;
+}
+.painel-conteudo{
+  background:var(--superficie); width:min(560px,100%); height:100%;
+  overflow-y:auto; padding:24px 26px; position:relative;
+}
+.painel h2{margin:0 0 18px; font-size:19px}
+.fechar{
+  position:absolute; top:16px; right:18px; background:none; border:none;
+  font-size:26px; line-height:1; color:var(--tinta-3); cursor:pointer;
+}
+.fechar:hover{color:var(--tinta)}
+.painel dl{margin:0 0 20px; font-size:13.5px}
+.painel dt{
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--tinta-3); margin-top:12px;
+}
+.painel dd{margin:3px 0 0; word-break:break-word}
+
+/* ---------- tela de entrada ---------- */
+.tela-entrar{
+  display:flex; align-items:center; justify-content:center; padding:24px;
+}
+.cartao-entrar{
+  background:var(--superficie); border:1px solid var(--regua);
+  border-radius:14px; padding:34px 32px; width:100%; max-width:396px;
+  box-shadow:var(--sombra);
+}
+.cartao-entrar h1{margin:20px 0 7px; font-size:24px; letter-spacing:-.01em}
+.cartao-entrar .sub{margin:0 0 24px; color:var(--tinta-2); font-size:14.5px}
+.cartao-entrar label{
+  display:block; font-size:12.5px; font-weight:600; margin:15px 0 6px;
+  color:var(--tinta-2);
+}
+.cartao-entrar input{
+  width:100%; border:1px solid var(--regua); border-radius:8px;
+  padding:11px 13px; font-size:15.5px; font-family:var(--sans);
+  background:var(--superficie-2); color:var(--tinta);
+}
+.cartao-entrar input:focus{outline:none; border-color:var(--acento)}
+.cartao-entrar button[type=submit]{
+  width:100%; margin-top:24px; background:var(--acento); color:#fff;
+  border:none; border-radius:8px; padding:12px; font-size:15px;
+  font-weight:600; cursor:pointer; font-family:var(--sans);
+}
+@media (prefers-color-scheme:dark){ .cartao-entrar button[type=submit]{color:#0E1211} }
+.cartao-entrar .rodape{
+  margin:22px 0 0; font-size:11.5px; color:var(--tinta-3); text-align:center;
+}
+.erro{
+  background:var(--critico-fundo); color:var(--critico); border-radius:8px;
+  padding:10px 13px; font-size:13.5px; margin:0 0 4px;
+}
+
+@media (max-width:640px){
+  .conversa{padding:20px 14px 8px}
+  .composicao{padding:12px 14px 8px}
+  .resposta{padding:16px 17px}
+  .topo{padding:10px 14px}
+  .boas-vindas{margin-top:5vh}
+}

@@ -231,19 +231,27 @@
 
   /* painel de fontes */
   function abrirPainel(estado) {
+    var arquivos = estado.arquivos || {};
+    var nomes = Object.keys(arquivos);
+
     var html = "<dl>";
     html += "<dt>Modo</dt><dd>Somente leitura. Nenhum arquivo é alterado.</dd>";
-    html += "<dt>Interpretação</dt><dd>" + esc(estado.fornecedor) + "</dd>";
+    html += "<dt>Interpretação</dt><dd>" + esc(estado.fornecedor || "-") + "</dd>";
     html += "<dt>Carregado em</dt><dd>" + esc(estado.carregado_em || "-") + "</dd>";
     html += "<dt>Registros lidos</dt><dd>" +
-      estado.notas + " notas · " + estado.lancamentos + " lançamentos · " +
-      estado.lotes + " lotes · " + estado.manuais + " reembolsos manuais · " +
-      estado.notas_debito + " notas de débito</dd>";
+      esc(estado.notas || 0) + " notas · " + esc(estado.lancamentos || 0) +
+      " lançamentos · " + esc(estado.lotes || 0) + " lotes · " +
+      esc(estado.manuais || 0) + " reembolsos manuais · " +
+      esc(estado.notas_debito || 0) + " notas de débito</dd>";
     html += "<dt>Arquivos</dt><dd>";
-    Object.keys(estado.arquivos).forEach(function (a) {
-      html += esc(a) + " <span style='color:var(--tinta-3)'>(salvo em " +
-        esc(estado.arquivos[a]) + ")</span><br>";
-    });
+    if (nomes.length) {
+      nomes.forEach(function (a) {
+        html += esc(a) + " <span style='color:var(--tinta-3)'>(salvo em " +
+          esc(arquivos[a]) + ")</span><br>";
+      });
+    } else {
+      html += 'Nenhuma planilha carregada. <a href="/planilhas">Enviar agora</a>';
+    }
     html += "</dd></dl>";
 
     if (estado.avisos && estado.avisos.length) {
@@ -258,8 +266,23 @@
     painel.hidden = false;
   }
 
+  function falhaNoPainel(mensagem) {
+    painelCorpo.innerHTML = '<div class="aviso critico"><span class="icone">!</span>' +
+      "<span>" + esc(mensagem) + "</span></div>";
+    painel.hidden = false;
+  }
+
   document.getElementById("btn-estado").addEventListener("click", function () {
-    fetch("/api/estado").then(function (r) { return r.json(); }).then(abrirPainel);
+    fetch("/api/estado")
+      .then(function (r) {
+        if (r.status === 401) { window.location.href = "/entrar"; return null; }
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (estado) { if (estado) abrirPainel(estado); })
+      .catch(function (erro) {
+        falhaNoPainel("Não consegui ler o estado das fontes: " + erro.message);
+      });
   });
 
   document.getElementById("btn-fechar-painel").addEventListener("click", function () {

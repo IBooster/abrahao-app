@@ -211,6 +211,11 @@ table.linhas-tab .valor{
   position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:50;
   display:flex; justify-content:flex-end;
 }
+/* O atributo hidden esconde via display:none da folha do navegador, e
+   qualquer display de autor vence essa regra. Sem esta linha o painel fica
+   sempre aberto, cobrindo a tela com inset:0, e o botao de fechar nao surte
+   efeito nenhum. */
+.painel[hidden]{display:none}
 .painel-conteudo{
   background:var(--superficie); width:min(560px,100%); height:100%;
   overflow-y:auto; padding:24px 26px; position:relative;

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Assistente financeiro</title>
-  <link rel="stylesheet" href="/static/app.css?v=1">
+  <link rel="stylesheet" href="/static/app.css?v=2">
 </head>
 <body>
   <header class="topo">
@@ -14,6 +14,7 @@
     </div>
     <div class="topo-acoes">
       <span class="selo" id="selo-modo">somente leitura</span>
+      <a class="botao-texto" href="/planilhas">Planilhas</a>
       <button type="button" class="botao-texto" id="btn-estado">Fontes</button>
       <button type="button" class="botao-texto" id="btn-recarregar">Recarregar</button>
       <form method="post" action="/sair" class="inline"><button type="submit" class="botao-texto">Sair</button></form>
@@ -44,6 +45,6 @@
     <p class="aviso-rodape">Esta versão consulta e não altera. Lançamentos entram na próxima fase.</p>
   </footer>
 
-  <script src="/static/app.js?v=1"></script>
+  <script src="/static/app.js?v=2"></script>
 </body>
 </html>

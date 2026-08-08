@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Planilhas - Assistente financeiro</title>
+  <link rel="stylesheet" href="/static/app.css?v=2">
+</head>
+<body>
+  <header class="topo">
+    <div class="marca">
+      <span class="ponto" aria-hidden="true"></span>
+      Assistente financeiro
+    </div>
+    <div class="topo-acoes">
+      <a class="botao-texto" href="/">Voltar ao chat</a>
+      <form method="post" action="/sair" class="inline"><button type="submit" class="botao-texto">Sair</button></form>
+    </div>
+  </header>
+
+  <main class="pagina">
+    <h1>Planilhas</h1>
+    <p class="intro">
+      O sistema lê estes cinco arquivos para responder. Ele nunca altera o conteúdo
+      deles - só substitui o arquivo inteiro quando você envia um novo, e guarda
+      uma cópia do anterior antes.
+    </p>
+
+    <div id="alerta"></div>
+
+    <div class="zona" id="zona">
+      <p class="zona-titulo">Arraste as planilhas aqui</p>
+      <p class="zona-sub">ou</p>
+      <label class="botao-arquivo">
+        Escolher arquivos
+        <input type="file" id="entrada-arquivo" accept=".xlsx" multiple hidden>
+      </label>
+      <p class="zona-nota">
+        O nome do arquivo precisa ser igual ao da planilha original. Pode enviar
+        os cinco de uma vez.
+      </p>
+    </div>
+
+    <div id="progresso"></div>
+
+    <h2>Situação atual</h2>
+    <div id="lista" class="lista-arquivos">
+      <p class="carregando">Carregando...</p>
+    </div>
+
+    <details class="historico">
+      <summary>Histórico de envios</summary>
+      <div id="historico"></div>
+    </details>
+
+    <p class="pasta" id="pasta"></p>
+  </main>
+
+  <script src="/static/planilhas.js?v=2"></script>
+</body>
+</html>

@@ -40,6 +40,54 @@ ARQUIVOS_ESPERADOS = [
     ARQ_DRE_BMG,
 ]
 
+# Como cada arquivo se apresenta para quem vai envia-lo, e o que precisa ter
+# dentro para ser aceito. Um arquivo que nao traga estas abas nao e o arquivo
+# que dizem que e, e o upload recusa antes de substituir o que ja existe.
+@dataclass(frozen=True)
+class ArquivoEsperado:
+    nome: str
+    rotulo: str
+    descricao: str
+    abas_obrigatorias: tuple[str, ...]
+
+
+ARQUIVOS: dict[str, ArquivoEsperado] = {
+    ARQ_FLUXO: ArquivoEsperado(
+        nome=ARQ_FLUXO,
+        rotulo="Fluxo de caixa",
+        descricao="Razao de cada conta, matriz mensal e controle de notas de debito.",
+        abas_obrigatorias=("ITAU", "INTER", "SANTANDER", "REEMBOLSO", "2026"),
+    ),
+    ARQ_FAT_PRINCIPAL: ArquivoEsperado(
+        nome=ARQ_FAT_PRINCIPAL,
+        rotulo="Faturamento - CNPJ principal",
+        descricao="Notas emitidas e recebidas pela sociedade principal.",
+        abas_obrigatorias=("NOTAS",),
+    ),
+    ARQ_FAT_RAFAELA: ArquivoEsperado(
+        nome=ARQ_FAT_RAFAELA,
+        rotulo="Faturamento - CNPJ Rafaela",
+        descricao="Notas emitidas e recebidas pela sociedade individual.",
+        abas_obrigatorias=("NOTAS",),
+    ),
+    ARQ_REEMBOLSOS: ArquivoEsperado(
+        nome=ARQ_REEMBOLSOS,
+        rotulo="Fechamento de reembolsos",
+        descricao="Lotes de guias do BMG e reembolsos manuais por processo.",
+        abas_obrigatorias=("GUIAS 2026",),
+    ),
+    ARQ_DRE_BMG: ArquivoEsperado(
+        nome=ARQ_DRE_BMG,
+        rotulo="DRE BMG",
+        descricao="Modelo de rentabilidade das equipes do BMG.",
+        abas_obrigatorias=("GERAL",),
+    ),
+}
+
+# Subpastas de apoio dentro da pasta das planilhas. Nunca sao lidas como dado.
+PASTA_BACKUPS = "_backups"
+PASTA_AUDITORIA = "_auditoria"
+
 
 # ---------------------------------------------------------------------------
 # CNPJs / entidades faturadoras

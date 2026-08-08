@@ -263,7 +263,72 @@ table.linhas-tab .valor{
   padding:10px 13px; font-size:13.5px; margin:0 0 4px;
 }
 
+/* ---------- pagina de planilhas ---------- */
+.pagina{max-width:760px; margin:0 auto; padding:34px 20px 90px; width:100%}
+.pagina h1{font-size:27px; margin:0 0 10px; letter-spacing:-.01em}
+.pagina h2{font-size:15px; margin:34px 0 12px; font-weight:650}
+.intro{color:var(--tinta-2); margin:0 0 22px; font-size:15px; max-width:62ch}
+
+.faixa{border-radius:9px; padding:12px 15px; font-size:14.5px; margin:0 0 20px}
+.faixa.ok{background:var(--acento-fraco); color:var(--acento)}
+.faixa.falta{background:var(--atencao-fundo); color:var(--atencao)}
+.faixa a{color:inherit; font-weight:600}
+
+.zona{
+  border:2px dashed var(--regua); border-radius:12px; padding:30px 20px;
+  text-align:center; background:var(--superficie); transition:border-color .15s;
+}
+.zona.arrastando{border-color:var(--acento); background:var(--acento-fraco)}
+.zona-titulo{margin:0 0 6px; font-weight:600; font-size:15.5px}
+.zona-sub{margin:0 0 12px; color:var(--tinta-3); font-size:13px}
+.zona-nota{margin:15px 0 0; color:var(--tinta-3); font-size:12.5px; max-width:46ch; margin-left:auto; margin-right:auto}
+.botao-arquivo{
+  display:inline-block; background:var(--acento); color:#fff; border-radius:8px;
+  padding:10px 20px; font-size:14.5px; font-weight:600; cursor:pointer;
+}
+@media (prefers-color-scheme:dark){ .botao-arquivo{color:#0E1211} }
+
+.envio{
+  display:flex; justify-content:space-between; gap:14px; align-items:baseline;
+  padding:10px 14px; border-radius:8px; margin-top:9px; font-size:13.5px;
+  background:var(--superficie-2); border:1px solid var(--regua);
+}
+.envio.ok{border-color:var(--ok); color:var(--ok)}
+.envio.erro{border-color:var(--critico); background:var(--critico-fundo); color:var(--critico)}
+.envio-nome{font-family:var(--mono); font-size:11.5px; word-break:break-all}
+.envio-estado{flex:none; text-align:right; max-width:58%}
+
+.lista-arquivos{display:flex; flex-direction:column; gap:9px}
+.arquivo{
+  display:flex; justify-content:space-between; gap:16px; align-items:flex-start;
+  background:var(--superficie); border:1px solid var(--regua);
+  border-left-width:3px; border-radius:8px; padding:14px 16px;
+}
+.arquivo.ok{border-left-color:var(--ok)}
+.arquivo.falta{border-left-color:var(--atencao)}
+.arquivo-info{display:flex; flex-direction:column; gap:3px; min-width:0}
+.arquivo-rotulo{font-weight:600; font-size:14.5px}
+.arquivo-desc{color:var(--tinta-2); font-size:12.5px}
+.arquivo-nome{color:var(--tinta-3); font-family:var(--mono); font-size:10.5px; word-break:break-all}
+.arquivo-estado{display:flex; flex-direction:column; align-items:flex-end; gap:5px; flex:none}
+.arquivo-meta{color:var(--tinta-3); font-size:11px; white-space:nowrap}
+.selo-ok,.selo-falta{
+  font-family:var(--mono); font-size:10px; letter-spacing:.06em;
+  text-transform:uppercase; padding:3px 9px; border-radius:99px; white-space:nowrap;
+}
+.selo-ok{background:var(--acento-fraco); color:var(--ok)}
+.selo-falta{background:var(--atencao-fundo); color:var(--atencao)}
+
+.historico{margin-top:30px}
+.historico summary{cursor:pointer; font-size:13.5px; color:var(--tinta-2); padding:7px 0}
+.historico summary:hover{color:var(--tinta)}
+.carregando{color:var(--tinta-3); font-size:13.5px}
+.pasta{margin-top:30px; color:var(--tinta-3); font-family:var(--mono); font-size:11px; word-break:break-all}
+
 @media (max-width:640px){
+  .arquivo{flex-direction:column; gap:9px}
+  .arquivo-estado{align-items:flex-start}
+  .pagina{padding:24px 14px 60px}
   .conversa{padding:20px 14px 8px}
   .composicao{padding:12px 14px 8px}
   .resposta{padding:16px 17px}

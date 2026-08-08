@@ -14,11 +14,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Cookie, FastAPI, Form, HTTPException, Request, Response
+from fastapi import Cookie, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import arquivos as arq
 from .chat.router import Roteador
 from .config import CONFIG
 from .domain.loader import Repositorio
@@ -191,7 +192,98 @@ def recarregar(sessao: Optional[str] = Cookie(default=None)):
     return JSONResponse(roteador.estado())
 
 
+# ---------------------------------------------------------------------------
+# Planilhas
+#
+# O disco do Railway e efemero e nao ha OneDrive la, entao os arquivos chegam
+# por aqui. Substituir arquivo inteiro nao e o mesmo que alterar planilha: o
+# conteudo nunca e tocado pelo sistema. Ver app/arquivos.py.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/planilhas", response_class=HTMLResponse)
+def pagina_planilhas(sessao: Optional[str] = Cookie(default=None)):
+    if not _autenticado(sessao):
+        return RedirectResponse("/entrar", status_code=303)
+    return HTMLResponse(_pagina("planilhas.html"))
+
+
+@app.get("/api/planilhas")
+def listar_planilhas(sessao: Optional[str] = Cookie(default=None)):
+    _exigir(sessao)
+    return JSONResponse(
+        {
+            "pasta": CONFIG.pasta_planilhas,
+            "arquivos": [
+                {
+                    "nome": e.nome,
+                    "rotulo": e.rotulo,
+                    "descricao": e.descricao,
+                    "presente": e.presente,
+                    "tamanho": e.tamanho_legivel,
+                    "atualizado_em": e.atualizado_em,
+                }
+                for e in arq.situacao(CONFIG.pasta_planilhas)
+            ],
+            "faltando": arq.faltando(CONFIG.pasta_planilhas),
+            "historico": arq.historico(CONFIG.pasta_planilhas),
+        }
+    )
+
+
+@app.post("/api/planilhas")
+async def enviar_planilha(
+    arquivo: UploadFile = File(...),
+    sessao: Optional[str] = Cookie(default=None),
+):
+    usuario = _exigir(sessao)
+    conteudo = await arquivo.read()
+    try:
+        recebido = arq.receber(
+            CONFIG.pasta_planilhas, arquivo.filename or "", conteudo, usuario
+        )
+    except arq.ArquivoRecusado as erro:
+        return JSONResponse({"ok": False, "erro": str(erro)}, status_code=400)
+    except OSError as erro:
+        return JSONResponse(
+            {
+                "ok": False,
+                "erro": (
+                    f"Não consegui gravar na pasta {CONFIG.pasta_planilhas}: "
+                    f"{erro.strerror or erro}. No Railway, confira se o volume "
+                    f"está montado e se PASTA_PLANILHAS aponta para ele."
+                ),
+            },
+            status_code=500,
+        )
+
+    # Releitura e conveniencia: adianta a proxima consulta. Se falhar - e ela
+    # falha enquanto os outros arquivos nao chegaram -, o envio continua
+    # valido. O cache invalida por mtime de qualquer forma.
+    pendentes = arq.faltando(CONFIG.pasta_planilhas)
+    if not pendentes:
+        try:
+            repositorio.recarregar()
+        except Exception:
+            pass
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "arquivo": recebido.nome,
+            "rotulo": recebido.rotulo,
+            "abas": recebido.abas,
+            "substituiu": recebido.substituiu,
+            "backup": recebido.backup,
+            "faltando": pendentes,
+        }
+    )
+
+
 @app.get("/saude")
 def saude():
     """Usada pelo Railway para saber se o servico subiu."""
-    return {"ok": True, "somente_leitura": True}
+    return {
+        "ok": True,
+        "planilhas_faltando": len(arq.faltando(CONFIG.pasta_planilhas)),
+    }

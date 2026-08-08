@@ -55,12 +55,31 @@ python -m pytest tests -v
 Os testes de segurança são o contrato da Fase 2 e falham se alguém introduzir
 um caminho de escrita:
 
-- nenhuma chamada capaz de gravar ou apagar arquivo no pacote `app`
+- nenhuma chamada capaz de gravar ou apagar arquivo **fora de `app/arquivos.py`**
 - nenhum `open()` em modo de escrita
 - todo `load_workbook` com `read_only=True`
-- nenhuma rota POST fora das quatro previstas
+- nenhuma rota POST fora das cinco previstas
 - nenhuma operação de escrita da Fase 3 implementada
 - **os arquivos não mudam no disco depois de rodar todas as consultas**
+- o módulo de guarda recusa nome fora do catálogo, caminho (`../`), arquivo
+  que não é xlsx, e planilha sem as abas obrigatórias
+- envio recusado **não toca** no arquivo que já estava lá
+- envio aceito guarda cópia do anterior antes de substituir
+
+### A única exceção à regra de não escrever
+
+`app/arquivos.py` é o único módulo autorizado a gravar em disco. Ele existe
+porque no Railway não há OneDrive: alguém precisa colocar as planilhas lá.
+
+Ele **substitui um arquivo inteiro** por outro que a usuária enviou de
+propósito. Nunca abre célula, nunca altera fórmula, nunca acrescenta linha -
+o conteúdo não passa pelo sistema. A promessa sobre o dado contábil continua
+valendo, e os testes acima cercam essa exceção.
+
+Ordem de cada envio, e ela importa: confere o nome contra o catálogo, abre e
+verifica as abas obrigatórias, guarda cópia do anterior, grava em arquivo
+temporário e troca de uma vez (`os.replace` é atômico), registra na auditoria.
+Se qualquer passo falhar, nada é substituído.
 
 ---
 
@@ -169,17 +188,29 @@ APP_CHAVE_SESSAO=
 PASTA_PLANILHAS=
 ```
 
-**Atenção com as planilhas.** O sistema de arquivos do Railway é efêmero:
-arquivo gravado no container se perde a cada deploy. Como esta fase só lê, o
-risco hoje é o serviço subir sem encontrar os arquivos. Antes da Fase 3 isso
-precisa ser resolvido, e as opções são:
+**Monte um volume.** O disco do container é efêmero: o que for gravado nele
+some a cada deploy. Crie um volume no serviço, monte em `/data` e aponte
+`PASTA_PLANILHAS=/data`.
 
-1. volume persistente montado no serviço, com `PASTA_PLANILHAS` apontando para ele
-2. armazenamento externo (S3 ou equivalente), baixando na inicialização
-3. manter o OneDrive como fonte, com sincronização
+### Primeiro acesso
 
-A decisão fica para quando a escrita entrar, porque aí a durabilidade do
-arquivo passa a ser crítica.
+1. Abra a URL do serviço e entre com `APP_USUARIO` / `APP_SENHA`
+2. Vá em **Planilhas**, no topo
+3. Arraste os cinco arquivos `.xlsx` (pode ser tudo de uma vez)
+4. Volte ao chat
+
+Antes disso o chat responde que faltam planilhas e diz quais - não dá erro
+técnico. O `/saude` continua respondendo ok mesmo sem arquivo, para o health
+check do Railway não derrubar o serviço; ele informa quantos faltam.
+
+As planilhas ficam no volume, não no repositório. Quando a versão do OneDrive
+mudar, é só reenviar: o sistema guarda a anterior em `_backups/` e anota o
+envio em `_auditoria/arquivos.jsonl`.
+
+Nota para quem rodar no Windows: o caminho completo não pode passar de 260
+caracteres, e os nomes dessas planilhas já têm 75. Se `PASTA_PLANILHAS`
+apontar para uma pasta muito funda, o envio é recusado com uma mensagem
+explicando. No Linux do Railway isso não acontece.
 
 ---
 
@@ -197,6 +228,7 @@ por regras e continua respondendo. Omie e XJus não são acessados nesta fase.
 
 ```
 app/
+  arquivos.py       ÚNICO módulo que escreve em disco (envio das planilhas)
   domain/
     schema.py       mapa declarativo: onde cada dado mora
     models.py       objetos de domínio e estados

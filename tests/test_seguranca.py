@@ -1,9 +1,19 @@
 # -*- coding: utf-8 -*-
 """Testes de seguranca da Fase 2.
 
-O compromisso da Fase 2 e que o sistema NAO escreve em planilha. Isso nao pode
-depender de disciplina de quem programa; precisa falhar o teste se alguem
-introduzir um caminho de escrita.
+O compromisso e que o sistema NUNCA altera o conteudo de uma planilha: nao
+abre celula, nao muda formula, nao acrescenta linha. Isso nao pode depender de
+disciplina de quem programa; precisa falhar o teste se alguem introduzir um
+caminho de escrita.
+
+Existe UMA excecao, e ela e estreita de proposito: app/arquivos.py substitui
+um arquivo inteiro por outro que a usuaria enviou. Isso existe porque no
+Railway nao ha OneDrive e alguem precisa colocar as planilhas la. Substituir o
+arquivo todo nao e alterar o dado contabil - o conteudo nunca passa pelo
+sistema.
+
+Os testes abaixo cercam essa excecao: nenhum outro modulo escreve, e esse so
+escreve nos cinco nomes conhecidos, dentro da pasta configurada.
 
 Rodar:  python -m pytest tests -v
 """
@@ -46,8 +56,15 @@ MODULOS_DE_FILESYSTEM = {"os", "shutil", "pathlib", "Path"}
 MODOS_DE_ESCRITA = ("w", "a", "x", "+")
 
 
-def _arquivos_python() -> list[Path]:
-    return [p for p in APP.rglob("*.py") if "__pycache__" not in str(p)]
+# O unico modulo autorizado a escrever em disco. Ver docstring do arquivo.
+MODULO_DE_ESCRITA = APP / "arquivos.py"
+
+
+def _arquivos_python(incluir_guarda: bool = False) -> list[Path]:
+    todos = [p for p in APP.rglob("*.py") if "__pycache__" not in str(p)]
+    if incluir_guarda:
+        return todos
+    return [p for p in todos if p != MODULO_DE_ESCRITA]
 
 
 def _raiz_do_receptor(no: ast.AST) -> str | None:
@@ -60,8 +77,8 @@ def _raiz_do_receptor(no: ast.AST) -> str | None:
     return None
 
 
-def test_nenhuma_chamada_de_escrita_em_arquivo():
-    """Nenhum modulo do app chama metodo capaz de gravar ou apagar arquivo."""
+def test_nenhuma_chamada_de_escrita_fora_do_modulo_de_guarda():
+    """So app/arquivos.py pode gravar ou apagar arquivo."""
     achados = []
     for caminho in _arquivos_python():
         arvore = ast.parse(caminho.read_text(encoding="utf-8"), filename=str(caminho))
@@ -81,9 +98,108 @@ def test_nenhuma_chamada_de_escrita_em_arquivo():
                     achados.append(f"{local} -> {raiz}.{metodo}()")
 
     assert not achados, (
-        "Chamada de escrita encontrada no pacote app. A Fase 2 e somente "
-        "leitura:\n  " + "\n  ".join(achados)
+        "Chamada de escrita fora de app/arquivos.py. Se precisar mesmo "
+        "escrever, faca pelo modulo de guarda:\n  " + "\n  ".join(achados)
     )
+
+
+def test_modulo_de_guarda_so_escreve_nos_arquivos_conhecidos():
+    """O modulo de escrita nunca aceita nome de arquivo vindo de fora.
+
+    O destino sai sempre do catalogo em schema.ARQUIVOS, depois de passar por
+    os.path.basename. Sem isso, um nome como '../../etc/senha' gravaria fora
+    da pasta.
+    """
+    from app import arquivos
+
+    fonte = MODULO_DE_ESCRITA.read_text(encoding="utf-8")
+    assert "os.path.basename" in fonte, (
+        "O modulo de escrita precisa reduzir o nome recebido a basename, "
+        "senao aceita caminho e grava fora da pasta."
+    )
+
+    for tentativa in (
+        "../fora.xlsx",
+        "../../etc/passwd",
+        "C:\\Windows\\System32\\qualquer.xlsx",
+        "aleatorio.xlsx",
+        "",
+    ):
+        with pytest.raises(arquivos.ArquivoRecusado):
+            arquivos.conferir(tentativa, b"PK\x03\x04conteudo")
+
+
+def test_modulo_de_guarda_recusa_o_que_nao_e_planilha():
+    from app import arquivos
+    from app.domain import schema
+
+    nome = schema.ARQ_REEMBOLSOS
+    with pytest.raises(arquivos.ArquivoRecusado):
+        arquivos.conferir(nome, b"")
+    with pytest.raises(arquivos.ArquivoRecusado):
+        arquivos.conferir(nome, b"isto nao e um xlsx")
+    with pytest.raises(arquivos.ArquivoRecusado):
+        arquivos.conferir(nome, b"PK\x03\x04" + b"\x00" * 200)
+
+
+def test_upload_confere_abas_antes_de_substituir(tmp_path):
+    """Arquivo com o nome certo mas conteudo errado nao substitui o bom."""
+    import openpyxl
+
+    from app import arquivos
+    from app.domain import schema
+
+    nome = schema.ARQ_REEMBOLSOS
+    bom = tmp_path / nome
+    bom.write_bytes(b"planilha boa que ja estava la")
+
+    # Um xlsx valido, porem sem a aba obrigatoria GUIAS 2026.
+    wb = openpyxl.Workbook()
+    wb.active.title = "outra coisa"
+    impostor = tmp_path / "impostor.xlsx"
+    wb.save(str(impostor))
+    wb.close()
+
+    with pytest.raises(arquivos.ArquivoRecusado) as erro:
+        arquivos.receber(str(tmp_path), nome, impostor.read_bytes(), "teste")
+
+    assert "GUIAS 2026" in str(erro.value)
+    assert bom.read_bytes() == b"planilha boa que ja estava la", (
+        "O arquivo que ja existia foi tocado mesmo com o envio recusado."
+    )
+
+
+def test_upload_guarda_copia_antes_de_substituir(tmp_path):
+    import openpyxl
+
+    from app import arquivos
+    from app.domain import schema
+
+    nome = schema.ARQ_REEMBOLSOS
+    anterior = tmp_path / nome
+    anterior.write_bytes(b"versao anterior")
+
+    wb = openpyxl.Workbook()
+    wb.active.title = "GUIAS 2026"
+    novo = tmp_path / "novo.xlsx"
+    wb.save(str(novo))
+    wb.close()
+
+    recebido = arquivos.receber(
+        str(tmp_path), nome, novo.read_bytes(), "teste"
+    )
+
+    assert recebido.substituiu is True
+    assert recebido.backup, "Nenhuma copia foi guardada antes de substituir."
+
+    copias = list((tmp_path / schema.PASTA_BACKUPS).glob("*.xlsx"))
+    assert len(copias) == 1
+    assert copias[0].read_bytes() == b"versao anterior"
+
+    registros = arquivos.historico(str(tmp_path))
+    assert len(registros) == 1
+    assert registros[0]["arquivo"] == nome
+    assert registros[0]["usuario"] == "teste"
 
 
 def test_nenhum_open_em_modo_de_escrita():
@@ -143,7 +259,13 @@ def test_nenhuma_rota_de_escrita_em_planilha():
         for rota in main.app.routes
         if "POST" in getattr(rota, "methods", set())
     }
-    permitidas = {"/entrar", "/sair", "/api/perguntar", "/api/recarregar"}
+    permitidas = {
+        "/entrar",
+        "/sair",
+        "/api/perguntar",
+        "/api/recarregar",
+        "/api/planilhas",  # recebe arquivo inteiro, nunca altera conteudo
+    }
     inesperadas = rotas_post - permitidas
     assert not inesperadas, f"Rota POST nao prevista na Fase 2: {inesperadas}"
 

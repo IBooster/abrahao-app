@@ -61,6 +61,19 @@ class Roteador:
         if not pergunta:
             return Resposta(texto="Pode perguntar.", tipo="pergunta")
 
+        faltando = self._planilhas_faltando()
+        if faltando:
+            nomes = "\n".join(f"  - {n}" for n in faltando)
+            return Resposta(
+                texto=(
+                    f"Ainda não tenho as planilhas para consultar. "
+                    f"{len(faltando)} arquivo(s) faltando:\n\n{nomes}\n\n"
+                    f"Envie pela tela Planilhas, no topo da página."
+                ),
+                tipo="erro",
+                titulo="Faltam planilhas",
+            )
+
         contexto = montar_contexto(E.CATALOGO, dt.date.today())
         try:
             escolha = self.provedor.escolher(pergunta, contexto)
@@ -156,6 +169,12 @@ class Roteador:
         return dados
 
     # -- apoio -------------------------------------------------------------
+
+    def _planilhas_faltando(self) -> list[str]:
+        """Quais dos arquivos esperados ainda nao chegaram na pasta."""
+        from .. import arquivos as arq
+
+        return arq.faltando(self.repositorio.base)
 
     def sugestoes(self) -> list[str]:
         return [

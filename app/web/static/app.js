@@ -133,10 +133,45 @@
     }).join("");
   }
 
+  function blocoProposta(p) {
+    if (!p) return "";
+    var html = '<div class="proposta">';
+
+    var chaves = Object.keys(p.inferido || {});
+    if (chaves.length) {
+      html += '<div class="inferido"><span class="inferido-tit">Preenchi a partir do histórico</span>';
+      chaves.forEach(function (k) {
+        html += "<div><b>" + esc(k) + ":</b> " + esc(p.inferido[k]) + "</div>";
+      });
+      html += "</div>";
+    }
+
+    (p.alvos || []).forEach(function (a) {
+      html += '<div class="alvo">';
+      html += '<div class="alvo-cab"><span class="alvo-acao">' + esc(a.acao) + "</span>" +
+        '<span class="alvo-onde">' + esc(a.aba) + " · linha " + esc(a.linha) + "</span></div>";
+      html += '<div class="alvo-arquivo">' + esc(a.arquivo) + "</div>";
+      html += '<table class="alvo-tab"><tbody>';
+      (a.celulas || []).forEach(function (c) {
+        html += "<tr><td class=\"cel-ref\">" + esc(c.ref) + "</td>" +
+          "<td class=\"cel-col\">" + esc(c.coluna) + "</td>" +
+          "<td class=\"cel-val\">" + esc(c.valor) + "</td></tr>";
+      });
+      html += "</tbody></table></div>";
+    });
+
+    html += '<div class="proposta-acoes">' +
+      '<button type="button" class="btn-confirmar" data-token="' + esc(p.token) + '">Confirmar e gravar</button>' +
+      '<button type="button" class="btn-cancelar" data-token="' + esc(p.token) + '">Cancelar</button>' +
+      "</div>";
+    return html + "</div>";
+  }
+
   function addResposta(dados) {
     var classe = "resposta";
     var titulo = dados.titulo || "";
-    if (dados.tipo === "escrita_bloqueada") classe += " bloqueada";
+    if (dados.tipo === "confirmacao") classe += " confirmacao";
+    if (dados.tipo === "aplicado") classe += " aplicado";
     if (dados.tipo === "erro") { classe += " erro"; titulo = titulo || "Não deu certo"; }
 
     var html = '<div class="turno"><div class="' + classe + '">';
@@ -144,6 +179,7 @@
     html += '<p class="texto">' + esc(dados.texto) + "</p>";
     html += blocoNumeros(dados.numeros);
     html += blocoLinhas(dados.linhas);
+    html += blocoProposta(dados.proposta);
     html += blocoAvisos(dados.avisos);
     if (dados.fonte && dados.fonte.length) {
       html += '<div class="fonte">Fonte: ' + esc(dados.fonte.join(" · ")) + "</div>";
@@ -152,6 +188,43 @@
     conversa.appendChild(elemento(html));
     rolar();
   }
+
+  /* Confirmar e cancelar ficam em delegacao: o cartao nasce depois da carga. */
+  conversa.addEventListener("click", function (e) {
+    var confirmar = e.target.closest(".btn-confirmar");
+    var cancelar = e.target.closest(".btn-cancelar");
+    if (!confirmar && !cancelar) return;
+
+    var botao = confirmar || cancelar;
+    var caixa = botao.closest(".proposta");
+    var token = botao.getAttribute("data-token");
+
+    caixa.querySelectorAll("button").forEach(function (b) { b.disabled = true; });
+    botao.textContent = confirmar ? "Gravando..." : "Cancelando...";
+
+    fetch(confirmar ? "/api/confirmar" : "/api/cancelar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: token })
+    })
+      .then(function (r) {
+        if (r.status === 401) { window.location.href = "/entrar"; return null; }
+        return r.json();
+      })
+      .then(function (d) {
+        if (!d) return;
+        caixa.remove();
+        addResposta(d);
+      })
+      .catch(function (erro) {
+        caixa.querySelectorAll("button").forEach(function (b) { b.disabled = false; });
+        botao.textContent = confirmar ? "Confirmar e gravar" : "Cancelar";
+        addResposta({
+          tipo: "erro", titulo: "Não deu certo",
+          texto: "Não consegui falar com o servidor: " + erro.message
+        });
+      });
+  });
 
   function perguntar(texto) {
     addUsuario(texto);

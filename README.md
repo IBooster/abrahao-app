@@ -1,9 +1,18 @@
-# Assistente financeiro - Fase 2 (consultas)
+# Assistente financeiro - Abrahão Advogados
 
-Chatbot que responde perguntas em português sobre as planilhas financeiras do
-escritório. **Esta fase é somente leitura: nenhum arquivo é alterado.**
+Chatbot que consulta e lança nas planilhas financeiras do escritório, em
+português.
 
-O motor de lançamentos é a Fase 3 e depende de aprovação do mapeamento.
+**Consulta** doze tipos de pergunta, sempre mostrando a origem do número
+(arquivo, aba e linha).
+
+**Lança** duas operações, sempre com confirmação na tela antes de gravar:
+registrar uma nota emitida e dar baixa num recebimento. O sistema monta a
+proposta dizendo célula por célula o que vai escrever; nada é gravado até a
+usuária clicar em confirmar.
+
+Guias judiciais, notas de débito, despesas e transferências ainda não têm
+lançamento: continuam sendo feitos direto na planilha.
 
 ---
 
@@ -66,20 +75,39 @@ um caminho de escrita:
 - envio recusado **não toca** no arquivo que já estava lá
 - envio aceito guarda cópia do anterior antes de substituir
 
-### A única exceção à regra de não escrever
+### Os dois módulos que podem escrever
 
-`app/arquivos.py` é o único módulo autorizado a gravar em disco. Ele existe
-porque no Railway não há OneDrive: alguém precisa colocar as planilhas lá.
+Todo o resto do código é incapaz de gravar em disco, e o teste falha se isso
+mudar.
 
-Ele **substitui um arquivo inteiro** por outro que a usuária enviou de
-propósito. Nunca abre célula, nunca altera fórmula, nunca acrescenta linha -
-o conteúdo não passa pelo sistema. A promessa sobre o dado contábil continua
-valendo, e os testes acima cercam essa exceção.
+`app/arquivos.py` **substitui um arquivo inteiro** por outro que a usuária
+enviou. Existe porque no Railway não há OneDrive. Confere o nome contra o
+catálogo, abre e verifica as abas obrigatórias, guarda cópia do anterior,
+grava em temporário e troca de uma vez (`os.replace` é atômico).
 
-Ordem de cada envio, e ela importa: confere o nome contra o catálogo, abre e
-verifica as abas obrigatórias, guarda cópia do anterior, grava em arquivo
-temporário e troca de uma vez (`os.replace` é atômico), registra na auditoria.
-Se qualquer passo falhar, nada é substituído.
+`app/lancamentos.py` **altera célula**, sempre em três passos: `propor()`
+monta a proposta sem tocar em nada, a usuária confirma, `aplicar()` grava.
+Garantias no código, não na boa intenção:
+
+- só escreve em célula vazia; se já tiver conteúdo, aborta (a planilha mudou
+  desde a proposta)
+- nunca escreve na aba `2026` nem no arquivo da DRE
+- nunca escreve em linha de bloco secundário
+- guarda cópia antes e registra na auditoria
+- se qualquer conferência falhar, nada é gravado
+
+### O que o openpyxl faz com os arquivos
+
+Medido nestes cinco arquivos: **preserva** fórmula, formato de moeda, largura
+de coluna, negrito e painéis congelados. **Perde** o valor em cache das
+fórmulas - o Excel recalcula ao abrir, mas quem espiar pelo preview do
+OneDrive vê célula de total em branco até abrir de verdade.
+
+Na DRE ele perderia 8 desenhos, e por isso escrever nesse arquivo é proibido
+no código.
+
+Rodei as 13 consultas contra os originais e contra cópias que passaram pelo
+openpyxl: zero divergência. Tudo que o sistema lê são células literais.
 
 ---
 

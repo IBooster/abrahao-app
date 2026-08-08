@@ -23,13 +23,18 @@ from typing import Any, Optional
 
 @dataclass
 class Escolha:
-    """O que o modelo devolveu."""
+    """O que o modelo devolveu.
+
+    Ou uma consulta (le e responde), ou um lancamento (escreve, depois de
+    confirmado), ou nenhum dos dois.
+    """
 
     consulta: Optional[str]
     parametros: dict[str, Any] = field(default_factory=dict)
-    # Preenchido quando o pedido e de ESCRITA. Na Fase 2 isso vira recusa
-    # explicativa, nunca uma tentativa de alterar arquivo.
-    intencao_de_escrita: Optional[str] = None
+    # Lancamento: nome da operacao e os campos que deu para extrair da frase.
+    # O modelo NAO decide onde escrever - quem monta a proposta e o codigo.
+    operacao: Optional[str] = None
+    dados: dict[str, Any] = field(default_factory=dict)
     # Texto para quando nada do catalogo serve.
     resposta_livre: Optional[str] = None
     fornecedor: str = "?"
@@ -79,9 +84,29 @@ Regras:
 3. Mes e sempre numero de 1 a 12. Ano e sempre numero de 4 digitos.
 4. "este mes" e "mes atual" usam o mes de hoje, informado no contexto.
 5. Faturar e receber sao coisas diferentes. "Quanto faturamos" usa a consulta faturamento. "Quanto recebemos" ou "quanto entrou" usa recebimentos.
-6. Se a pergunta pedir para REGISTRAR, LANCAR, EMITIR, PAGAR, DAR BAIXA, ALTERAR ou CORRIGIR qualquer coisa, responda:
-   {"consulta": null, "intencao_de_escrita": "<o que a pessoa quis fazer, em uma frase>"}
-   O sistema ainda nao faz lancamento; ele vai explicar isso.
+6. Se a pessoa quiser REGISTRAR um lancamento, responda com a operacao e os campos que ela informou:
+   {"operacao": "<nome>", "dados": {...}}
+
+   Operacoes e campos aceitos:
+
+   nota_emitida - uma nota foi emitida para um cliente, dinheiro ainda nao entrou.
+       cliente        nome do cliente, obrigatorio
+       valor_bruto    numero, sem simbolo de moeda
+       valor_liquido  numero, se a pessoa informar
+       numero         numero da NF, formato "240/2026", se ela informar
+       entidade       "principal" ou "rafaela", so se ela disser
+       observacoes    texto curto, se houver
+
+   recebimento - o dinheiro de uma nota entrou.
+       numero    numero da NF, se ela informar
+       cliente   nome do cliente
+       valor     numero
+       conta     itau, inter, inter3, santander ou omie_cash, se ela disser
+
+   Extraia SO o que a pessoa falou. Nao invente cliente, valor nem numero de nota.
+   O sistema pergunta o que faltar e mostra tudo para ela confirmar antes de gravar.
+   "Emitimos uma nota" e "recebemos" sao operacoes DIFERENTES: emitir nao e receber.
+
 7. Se a pergunta nao tiver nada a ver com o financeiro do escritorio, responda:
    {"consulta": null, "resposta_livre": "<resposta curta>"}
 8. Se faltar um dado obrigatorio, escolha a consulta assim mesmo e deixe o parametro de fora. O sistema pergunta o que falta.

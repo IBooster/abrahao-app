@@ -152,10 +152,56 @@ body{
 }
 .resposta .texto{margin:0; white-space:pre-wrap; font-size:15.5px; line-height:1.65}
 
-.resposta.bloqueada{border-left:2px solid var(--atencao)}
-.resposta.bloqueada h3{color:var(--atencao)}
 .resposta.erro{border-left:2px solid var(--critico)}
 .resposta.erro h3{color:var(--critico)}
+.resposta.confirmacao{border-left:2px solid var(--atencao)}
+.resposta.confirmacao h3{color:var(--atencao)}
+.resposta.aplicado{border-left:2px solid var(--ok)}
+.resposta.aplicado h3{color:var(--ok)}
+
+/* ---------- proposta de lancamento ---------- */
+.proposta{margin-top:20px}
+.inferido{
+  background:var(--superficie-2); border-left:2px solid var(--salvia);
+  padding:12px 15px; font-size:13px; color:var(--tinta-2); margin-bottom:16px;
+}
+.inferido-tit{
+  display:block; font-size:10px; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--tinta-3); margin-bottom:7px;
+}
+.inferido b{color:var(--tinta); font-weight:600}
+.inferido div{margin-top:4px}
+
+.alvo{border-top:1px solid var(--regua); padding-top:14px; margin-top:14px}
+.alvo:first-of-type{margin-top:0}
+.alvo-cab{display:flex; justify-content:space-between; gap:12px; align-items:baseline}
+.alvo-acao{
+  font-size:10px; letter-spacing:.13em; text-transform:uppercase;
+  color:var(--acento); font-weight:600;
+}
+.alvo-onde{font-size:12.5px; color:var(--tinta-2); font-weight:600}
+.alvo-arquivo{
+  font-family:var(--mono); font-size:10px; color:var(--tinta-3);
+  margin-top:3px; word-break:break-all;
+}
+table.alvo-tab{border-collapse:collapse; width:100%; margin-top:10px; font-size:13px}
+table.alvo-tab td{padding:6px 12px 6px 0; border-bottom:1px solid var(--regua-2)}
+table.alvo-tab tr:last-child td{border-bottom:none}
+.cel-ref{font-family:var(--mono); font-size:11px; color:var(--tinta-3); width:52px}
+.cel-col{color:var(--tinta-2); white-space:nowrap}
+.cel-val{font-weight:600; text-align:right; font-variant-numeric:tabular-nums}
+
+.proposta-acoes{display:flex; gap:10px; margin-top:20px; flex-wrap:wrap}
+.btn-confirmar,.btn-cancelar{
+  border:none; border-radius:2px; padding:12px 22px; font-size:14px;
+  font-weight:600; cursor:pointer; font-family:var(--sans); letter-spacing:.02em;
+}
+.btn-confirmar{background:var(--acento); color:#fff}
+.btn-confirmar:hover{background:var(--acento-forte)}
+@media (prefers-color-scheme:dark){ .btn-confirmar{color:#17181A} }
+.btn-cancelar{background:none; color:var(--tinta-2); border:1px solid var(--regua)}
+.btn-cancelar:hover{border-color:var(--tinta-3); color:var(--tinta)}
+.btn-confirmar:disabled,.btn-cancelar:disabled{opacity:.5; cursor:default}
 
 /* ---------- numeros ---------- */
 .numeros{

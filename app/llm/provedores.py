@@ -120,12 +120,15 @@ class ProvedorRegras(Provedor):
         e_pergunta = texto.rstrip().endswith("?") or any(
             baixo.lstrip().startswith(m) for m in _MARCAS_DE_PERGUNTA
         )
-        if not e_pergunta and any(v in texto.lower() for v in _VERBOS_ESCRITA):
-            return Escolha(
-                consulta=None,
-                intencao_de_escrita=texto,
-                fornecedor=self.nome,
-            )
+        if not e_pergunta:
+            lancamento = self._lancamento(texto, baixo)
+            if lancamento:
+                return Escolha(
+                    consulta=None,
+                    operacao=lancamento[0],
+                    dados=lancamento[1],
+                    fornecedor=self.nome,
+                )
 
         parametros: dict[str, Any] = {}
 
@@ -158,6 +161,118 @@ class ProvedorRegras(Provedor):
 
         nome = self._consulta(baixo, parametros)
         return Escolha(consulta=nome, parametros=parametros, fornecedor=self.nome)
+
+    # -- lancamentos -------------------------------------------------------
+
+    # Verbos que indicam que o dinheiro ENTROU, nao que a nota foi emitida.
+    _RECEBER = (
+        "recebemos", "recebeu", "caiu", "entrou", "pagou", "quitou",
+        "deu baixa", "dar baixa", "foi paga", "foi pago",
+    )
+    _EMITIR = (
+        "emitimos", "emiti", "emitiu", "emitida", "faturamos", "faturei",
+        "teve uma nota", "saiu uma nota", "nota nova", "nova nota",
+        "registra uma nota", "registrar uma nota", "lancar uma nota",
+    )
+
+    def _lancamento(self, texto: str, baixo: str):
+        """Extrai (operacao, dados) da frase. Devolve None se nao for lancamento."""
+        tem = lambda ts: any(t in baixo for t in ts)
+        if tem(self._RECEBER):
+            operacao = "recebimento"
+        elif tem(self._EMITIR) or ("nota" in baixo and tem(_VERBOS_ESCRITA)):
+            operacao = "nota_emitida"
+        elif tem(_VERBOS_ESCRITA):
+            # Pedido de escrita que ainda nao sei fazer: devolve sem operacao
+            # para o roteador explicar, em vez de fingir que entendeu.
+            return ("nao_suportada", {"frase": texto})
+        else:
+            return None
+
+        dados: dict[str, Any] = {}
+
+        nf = re.search(r"\b(\d{1,4}\s*/\s*\d{2,4})\b", texto)
+        if nf:
+            dados["numero"] = nf.group(1).replace(" ", "")
+
+        valor = self._valor(texto)
+        if valor is not None:
+            dados["valor_bruto" if operacao == "nota_emitida" else "valor"] = valor
+
+        cliente = self._cliente_lancamento(texto)
+        if cliente:
+            dados["cliente"] = cliente
+
+        if "rafaela" in baixo or "individual" in baixo:
+            dados["entidade"] = "rafaela"
+        elif "principal" in baixo or "matriz" in baixo:
+            dados["entidade"] = "principal"
+
+        conta = self._conta(baixo)
+        if conta and operacao == "recebimento":
+            dados["conta"] = conta
+
+        return (operacao, dados)
+
+    @staticmethod
+    def _valor(texto: str):
+        """Le "50 mil", "R$ 1.234,56", "100000" ou "1,5 milhao"."""
+        t = texto.replace(" ", " ")
+        m = re.search(
+            r"(?:R\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?|\d+(?:\.\d{1,2})?)"
+            r"\s*(mil|milh(?:ao|ão|oes|ões))?",
+            t, re.I,
+        )
+        if not m:
+            return None
+        bruto, escala = m.group(1), (m.group(2) or "").lower()
+        # Numero de nota nao e valor: "240/2026" nao vira 240.
+        if re.search(re.escape(bruto) + r"\s*/", t):
+            return None
+        if "." in bruto and "," in bruto:
+            bruto = bruto.replace(".", "").replace(",", ".")
+        elif "," in bruto:
+            bruto = bruto.replace(",", ".")
+        elif bruto.count(".") > 1 or re.match(r"^\d{1,3}(\.\d{3})+$", bruto):
+            bruto = bruto.replace(".", "")
+        try:
+            n = float(bruto)
+        except ValueError:
+            return None
+        if escala.startswith("mil"):
+            n *= 1000
+        elif escala.startswith("milh"):
+            n *= 1_000_000
+        return round(n, 2)
+
+    @staticmethod
+    def _cliente_lancamento(texto: str):
+        """Nome do cliente numa frase de lancamento.
+
+        Procura depois de "para", "do", "da" ou "de", e aceita nome em caixa
+        alta solto ("nota do BMG de 100 mil" -> BMG).
+        """
+        ignorar = {
+            "NOTA", "NF", "CNPJ", "PENDENTE", "ND", "R$", "MIL", "MILHAO",
+            "MILHÃO", "REAIS", "VALOR", "CLIENTE", "CONTA", "BANCO", "HOJE",
+            "ONTEM", "RAFAELA", "PRINCIPAL", "MATRIZ",
+        }
+        for padrao in (
+            r"(?:para|pro|pra)\s+(?:a\s+|o\s+)?([A-ZÀ-Ú][A-Za-zÀ-ú0-9&\.\- ]{1,34})",
+            r"\b(?:do|da|de)\s+([A-ZÀ-Ú][A-ZÀ-Ú0-9&\.\- ]{1,34})",
+            r"\b([A-ZÀ-Ú]{2,}(?:\s+[A-ZÀ-Ú0-9&\.]{2,}){0,3})\b",
+        ):
+            for m in re.finditer(padrao, texto):
+                cand = m.group(1).strip(" .-")
+                cand = re.split(r"\s+(?:de|no|na|em|por)\s+", cand)[0].strip()
+                if not cand or cand.upper() in ignorar:
+                    continue
+                if re.fullmatch(r"[\d\.,/]+", cand):
+                    continue
+                if nz.numero_mes(cand) is not None:
+                    continue
+                return cand
+        return None
 
     # -- heuristicas -------------------------------------------------------
 
@@ -323,10 +438,19 @@ class ProvedorAnthropic(Provedor):
         if nome is not None and nome not in self.catalogo:
             # O modelo inventou um nome. O codigo nao obedece.
             nome = None
+
+        operacao = dados.get("operacao")
+        if operacao is not None:
+            from .. import lancamentos as lanc
+
+            if operacao not in lanc.OPERACOES:
+                operacao = "nao_suportada"
+
         return Escolha(
             consulta=nome,
             parametros=dados.get("parametros") or {},
-            intencao_de_escrita=dados.get("intencao_de_escrita"),
+            operacao=operacao,
+            dados=dados.get("dados") or {},
             resposta_livre=dados.get("resposta_livre"),
             fornecedor=self.nome,
         )

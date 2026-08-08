@@ -56,15 +56,17 @@ MODULOS_DE_FILESYSTEM = {"os", "shutil", "pathlib", "Path"}
 MODOS_DE_ESCRITA = ("w", "a", "x", "+")
 
 
-# O unico modulo autorizado a escrever em disco. Ver docstring do arquivo.
-MODULO_DE_ESCRITA = APP / "arquivos.py"
+# Os unicos modulos autorizados a escrever em disco:
+#   arquivos.py    troca o arquivo inteiro (envio das planilhas)
+#   lancamentos.py altera celula, sempre depois de proposta confirmada
+MODULOS_DE_ESCRITA = {APP / "arquivos.py", APP / "lancamentos.py"}
 
 
 def _arquivos_python(incluir_guarda: bool = False) -> list[Path]:
     todos = [p for p in APP.rglob("*.py") if "__pycache__" not in str(p)]
     if incluir_guarda:
         return todos
-    return [p for p in todos if p != MODULO_DE_ESCRITA]
+    return [p for p in todos if p not in MODULOS_DE_ESCRITA]
 
 
 def _raiz_do_receptor(no: ast.AST) -> str | None:
@@ -112,7 +114,7 @@ def test_modulo_de_guarda_so_escreve_nos_arquivos_conhecidos():
     """
     from app import arquivos
 
-    fonte = MODULO_DE_ESCRITA.read_text(encoding="utf-8")
+    fonte = (APP / "arquivos.py").read_text(encoding="utf-8")
     assert "os.path.basename" in fonte, (
         "O modulo de escrita precisa reduzir o nome recebido a basename, "
         "senao aceita caminho e grava fora da pasta."
@@ -264,7 +266,9 @@ def test_nenhuma_rota_de_escrita_em_planilha():
         "/sair",
         "/api/perguntar",
         "/api/recarregar",
-        "/api/planilhas",  # recebe arquivo inteiro, nunca altera conteudo
+        "/api/planilhas",   # recebe arquivo inteiro, nunca altera conteudo
+        "/api/confirmar",   # aplica proposta que a usuaria confirmou na tela
+        "/api/cancelar",
     }
     inesperadas = rotas_post - permitidas
     assert not inesperadas, f"Rota POST nao prevista na Fase 2: {inesperadas}"
@@ -276,18 +280,15 @@ def test_schema_declara_modo_somente_leitura():
     assert schema.MODO_SOMENTE_LEITURA is True
 
 
-def test_nenhuma_operacao_de_escrita_implementada():
-    """As operacoes planejadas para a Fase 3 nao existem como funcao."""
+def test_motor_de_consulta_nao_escreve():
+    """Nenhuma operacao de escrita vazou para o catalogo de consultas."""
     from app.domain import schema
     from app.queries import engine
 
     for nome in schema.OPERACOES_ESCRITA_PLANEJADAS:
-        assert not hasattr(engine, nome), (
-            f"A operacao de escrita '{nome}' aparece no motor de consultas. "
-            f"Ela pertence a Fase 3 e depende de aprovacao."
-        )
         assert nome not in engine.CATALOGO, (
-            f"A operacao de escrita '{nome}' esta no catalogo de consultas."
+            f"A operacao de escrita '{nome}' esta no catalogo de consultas. "
+            f"Consulta nunca altera arquivo."
         )
 
 

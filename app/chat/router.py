@@ -25,8 +25,9 @@ from ..queries import engine as E
 
 @dataclass
 class Resposta:
+    # consulta | confirmacao | aplicado | pergunta | erro
     texto: str
-    tipo: str = "consulta"  # consulta | escrita_bloqueada | pergunta | erro
+    tipo: str = "consulta"
     titulo: Optional[str] = None
     numeros: dict[str, float] = field(default_factory=dict)
     linhas: list[dict[str, Any]] = field(default_factory=list)
@@ -35,17 +36,15 @@ class Resposta:
     consulta: Optional[str] = None
     parametros: dict[str, Any] = field(default_factory=dict)
     fornecedor: Optional[str] = None
+    # Proposta de lancamento aguardando confirmacao.
+    proposta: Optional[dict[str, Any]] = None
 
 
-TEXTO_ESCRITA_BLOQUEADA = (
-    "Entendi o pedido, mas ainda não posso alterar planilha.\n\n"
-    "Esta versão lê os arquivos e responde, sem nunca escrever neles. O motor "
-    "de lançamentos é a próxima fase e ainda depende de uma definição do "
-    "financeiro: o que significam as notas de janeiro a junho que ficaram com "
-    "a data de recebimento em branco.\n\n"
-    "O que anotei do seu pedido: {intencao}\n\n"
-    "Enquanto isso, posso consultar qualquer coisa: quanto foi faturado, o que "
-    "está em aberto, quanto um cliente deve, ou quais reembolsos faltam."
+TEXTO_NAO_SUPORTADA = (
+    "Entendi que é um lançamento, mas ainda só sei fazer dois: registrar uma "
+    "nota emitida e dar baixa num recebimento.\n\n"
+    "Guias judiciais, notas de débito, despesas e transferências entram "
+    "depois. Por enquanto esses continuam sendo lançados direto na planilha."
 )
 
 
@@ -53,6 +52,10 @@ class Roteador:
     def __init__(self, repositorio: Repositorio, provedor: Provedor) -> None:
         self.repositorio = repositorio
         self.provedor = provedor
+        # Propostas montadas e ainda nao confirmadas, por token. Ficam so em
+        # memoria: se o servico reiniciar, a usuaria refaz o pedido - melhor
+        # do que aplicar algo que ela nao viu.
+        self._pendentes: dict[str, Any] = {}
 
     # -- entrada principal -------------------------------------------------
 
@@ -83,15 +86,8 @@ class Roteador:
             escolha = ProvedorRegras(E.CATALOGO).escolher(pergunta, contexto)
             escolha.fornecedor = f"regras (queda: {type(erro).__name__})"
 
-        if escolha.intencao_de_escrita:
-            return Resposta(
-                texto=TEXTO_ESCRITA_BLOQUEADA.format(
-                    intencao=escolha.intencao_de_escrita
-                ),
-                tipo="escrita_bloqueada",
-                titulo="Lancamento ainda nao disponivel",
-                fornecedor=escolha.fornecedor,
-            )
+        if escolha.operacao:
+            return self._lancamento(escolha)
 
         if not escolha.consulta:
             return Resposta(
@@ -137,6 +133,131 @@ class Roteador:
             )
 
         return self._formatar(resultado, escolha, indice)
+
+    # -- lancamentos -------------------------------------------------------
+
+    def _lancamento(self, escolha) -> Resposta:
+        """Monta a proposta e devolve para confirmacao. NAO escreve."""
+        from .. import lancamentos as lanc
+
+        if escolha.operacao == "nao_suportada":
+            return Resposta(
+                texto=TEXTO_NAO_SUPORTADA,
+                tipo="erro",
+                titulo="Ainda não sei fazer esse lançamento",
+                fornecedor=escolha.fornecedor,
+            )
+
+        try:
+            indice = self.repositorio.indice()
+            proposta = lanc.propor(indice, escolha.operacao, escolha.dados)
+        except lanc.LancamentoRecusado as erro:
+            return Resposta(texto=str(erro), tipo="erro", titulo="Não posso fazer isso")
+        except Exception as erro:
+            return Resposta(
+                texto=(
+                    f"Não consegui montar o lançamento. "
+                    f"Detalhe técnico: {type(erro).__name__}: {erro}"
+                ),
+                tipo="erro",
+            )
+
+        if not proposta.pronta:
+            faltando = "\n".join(f"- {f}" for f in proposta.faltando)
+            inferido = "".join(
+                f"\n\nJá tenho: {k.lower()} = {v}" for k, v in proposta.inferido.items()
+            )
+            return Resposta(
+                texto=f"Antes de gravar, preciso saber:\n\n{faltando}{inferido}",
+                tipo="pergunta",
+                titulo="Falta um dado",
+                fornecedor=escolha.fornecedor,
+            )
+
+        self._pendentes[proposta.token] = proposta
+        return Resposta(
+            texto=proposta.resumo,
+            tipo="confirmacao",
+            titulo="Confirma este lançamento?",
+            avisos=proposta.avisos,
+            fornecedor=escolha.fornecedor,
+            proposta={
+                "token": proposta.token,
+                "tipo": proposta.tipo,
+                "inferido": proposta.inferido,
+                "alvos": [
+                    {
+                        "arquivo": a.arquivo,
+                        "aba": a.aba.strip(),
+                        "linha": a.linha,
+                        "acao": a.acao,
+                        "celulas": [
+                            {"ref": c.ref, "coluna": c.coluna, "valor": c.exibicao}
+                            for c in a.celulas
+                        ],
+                    }
+                    for a in proposta.alvos
+                ],
+            },
+        )
+
+    def confirmar(self, token: str, usuario: str) -> Resposta:
+        """Aplica uma proposta que a usuaria confirmou."""
+        from .. import lancamentos as lanc
+
+        proposta = self._pendentes.pop(token, None)
+        if proposta is None:
+            return Resposta(
+                texto=(
+                    "Essa proposta não está mais em aberto. Ela pode ter sido "
+                    "aplicada, cancelada, ou o serviço reiniciou. Refaça o "
+                    "pedido que eu monto de novo."
+                ),
+                tipo="erro",
+                titulo="Proposta expirada",
+            )
+
+        try:
+            feito = lanc.aplicar(self.repositorio.base, proposta, usuario)
+        except lanc.LancamentoRecusado as erro:
+            return Resposta(texto=str(erro), tipo="erro", titulo="Não gravei nada")
+        except Exception as erro:
+            return Resposta(
+                texto=(
+                    f"Falhou ao gravar. A cópia anterior está em _backups. "
+                    f"Detalhe técnico: {type(erro).__name__}: {erro}"
+                ),
+                tipo="erro",
+                titulo="Não deu certo",
+            )
+
+        self.repositorio.recarregar()
+        quantas = len(feito["celulas"])
+        onde = ", ".join(sorted({c.split("!")[0] for c in feito["celulas"]}))
+        copias = (
+            " Guardei cópia dos arquivos antes de mexer."
+            if feito["backups"] else ""
+        )
+        return Resposta(
+            texto=(
+                f"Pronto. Gravei {quantas} células em {onde}.{copias} "
+                f"As consultas já enxergam o lançamento."
+            ),
+            tipo="aplicado",
+            titulo="Lançamento registrado",
+        )
+
+    def cancelar(self, token: str) -> Resposta:
+        existia = self._pendentes.pop(token, None) is not None
+        return Resposta(
+            texto=(
+                "Cancelado. Nada foi gravado."
+                if existia
+                else "Essa proposta já não estava em aberto. Nada foi gravado."
+            ),
+            tipo="aplicado",
+            titulo="Cancelado",
+        )
 
     # -- formatacao --------------------------------------------------------
 

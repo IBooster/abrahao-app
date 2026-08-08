@@ -172,6 +172,25 @@ def perguntar(
     return JSONResponse(resposta.__dict__)
 
 
+class Confirmacao(BaseModel):
+    token: str
+
+
+@app.post("/api/confirmar")
+def confirmar(
+    dados: Confirmacao, sessao: Optional[str] = Cookie(default=None)
+):
+    """Aplica um lancamento que a usuaria confirmou na tela."""
+    usuario = _exigir(sessao)
+    return JSONResponse(roteador.confirmar(dados.token, usuario).__dict__)
+
+
+@app.post("/api/cancelar")
+def cancelar(dados: Confirmacao, sessao: Optional[str] = Cookie(default=None)):
+    _exigir(sessao)
+    return JSONResponse(roteador.cancelar(dados.token).__dict__)
+
+
 @app.get("/api/estado")
 def estado(sessao: Optional[str] = Cookie(default=None)):
     _exigir(sessao)

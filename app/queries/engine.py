@@ -19,6 +19,7 @@ from typing import Any, Callable, Optional
 from ..domain import normalize as nz
 from ..domain import schema as sch
 from ..domain.models import (
+    ESTADO_CANCELADA,
     ESTADO_PENDENTE,
     ESTADO_PREVISTA,
     ESTADO_RECEBIDA,
@@ -63,6 +64,7 @@ def _origem_nota(n: Nota) -> str:
 ROTULO_ESTADO = {
     ESTADO_PREVISTA: "prevista, sem NF",
     ESTADO_PENDENTE: "faturada, marcada PENDENTE",
+    ESTADO_CANCELADA: "cancelada",
     ESTADO_SEM_BAIXA: "faturada, sem baixa registrada",
     ESTADO_RECEBIDA: "recebida",
 }
@@ -151,7 +153,8 @@ def faturamento(
     recebidas = [n for n in emitidas if n.estado == ESTADO_RECEBIDA]
     pendentes = [n for n in emitidas if n.estado == ESTADO_PENDENTE]
     sem_baixa = [n for n in emitidas if n.estado == ESTADO_SEM_BAIXA]
-    previstas = [n for n in notas if not n.emitida]
+    canceladas = [n for n in notas if n.estado == ESTADO_CANCELADA]
+    previstas = [n for n in notas if n.estado == ESTADO_PREVISTA]
 
     soma = lambda ns: sum(n.valor for n in ns)
     periodo = _rotulo_periodo(mes, ano)
@@ -173,6 +176,7 @@ def faturamento(
             "pendente": soma(pendentes),
             "sem_baixa": soma(sem_baixa),
             "previsto": soma(previstas),
+            "cancelado": soma(canceladas),
         },
         fonte=sorted({_origem_nota(n).split(" > ")[0] for n in notas}),
     )
@@ -198,12 +202,26 @@ def faturamento(
                 f"{len(previstas)} linhas",
             )
         )
+    if canceladas:
+        res.linhas.append(
+            Linha(
+                "Canceladas (fora do faturamento)",
+                soma(canceladas),
+                f"{len(canceladas)} notas",
+            )
+        )
 
+    if canceladas:
+        res.avisos.append(
+            f"{len(canceladas)} notas do período foram canceladas "
+            f"({nz.moeda(soma(canceladas))}) e ficam fora do faturamento. "
+            f"A maioria foi substituída por outra NF, que entra normalmente."
+        )
     if sem_baixa:
         res.avisos.append(
-            f"{len(sem_baixa)} notas emitidas não têm data nem marcador na "
-            f"coluna de recebimento ({nz.moeda(soma(sem_baixa))}). Não contei "
-            f"como recebidas nem como pendentes. Pergunta 12, em aberto."
+            f"{len(sem_baixa)} notas emitidas não têm data, marcador nem "
+            f"explicação na observação ({nz.moeda(soma(sem_baixa))}). "
+            f"Confirmar com o financeiro."
         )
     return res
 
@@ -295,12 +313,18 @@ def a_receber(
     soma = lambda ns: sum(n.valor for n in ns)
 
     alvo = f" de {cliente}" if cliente else ""
+    extra = ""
+    if sem_baixa:
+        extra = (
+            f" Fora isso, {nz.moeda(soma(sem_baixa))} em {len(sem_baixa)} "
+            f"notas sem data de recebimento e sem explicação na observação, "
+            f"que precisam ser conferidas."
+        )
     res = Resultado(
         titulo=f"Contas a receber{alvo}",
         resumo=(
             f"{nz.moeda(soma(pendentes))} em {len(pendentes)} notas marcadas "
-            f"PENDENTE. Além disso, {nz.moeda(soma(sem_baixa))} em "
-            f"{len(sem_baixa)} notas cuja coluna de recebimento ficou vazia."
+            f"PENDENTE.{extra}"
         ),
         numeros={
             "pendente": soma(pendentes),

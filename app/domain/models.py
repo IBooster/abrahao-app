@@ -9,30 +9,57 @@ apontada em schema.py.
 from __future__ import annotations
 
 import datetime as dt
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Optional
+
+
+def _sem_acento(texto: str) -> str:
+    nfkd = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 # ---------------------------------------------------------------------------
 # Faturamento
 # ---------------------------------------------------------------------------
 
-# Estados possiveis de uma linha de faturamento, derivados de duas colunas:
-#   A (NF) vazia                -> prevista   (nota ainda nao emitida)
-#   A preenchida + G "PENDENTE" -> pendente   (faturada, cobranca em aberto)
-#   A preenchida + G vazia      -> sem_baixa  (faturada, coluna nunca preenchida)
-#   A preenchida + G data       -> recebida
+# Estados possiveis de uma linha de faturamento:
 #
-# "pendente" e "sem_baixa" NAO sao a mesma coisa e o sistema nunca as soma
-# em silencio. O marcador PENDENTE so passou a ser usado a partir de julho de
-# 2026; nos meses anteriores a coluna G ficou vazia em 25 notas. Se isso e
-# cobranca viva ou baixa que ninguem registrou e a pergunta 12 do mapeamento,
-# em aberto com o escritorio.
+#   A (NF) vazia ou "X"          -> prevista   (nota nao emitida)
+#   G data                       -> recebida
+#   G "PENDENTE"                 -> pendente   (faturada, cobranca em aberto)
+#   G vazia + obs de cancelamento-> cancelada  (nota anulada, muitas vezes
+#                                               substituida por outra NF)
+#   G vazia e mais nada          -> sem_baixa  (nao sabemos o que houve)
+#
+# Sobre "cancelada": as 25 notas de janeiro a junho com a coluna G vazia
+# trazem, TODAS, marca de cancelamento na observacao ("cancelada",
+# "cancelada/nova NF 111/2026", "erro de emissao", "substituida"). Nao sao
+# cobranca viva nem baixa esquecida: sao notas anuladas. Confirmado com o
+# escritorio em agosto de 2026, e conferido no arquivo - nenhuma nota recebida
+# menciona cancelamento, e nenhuma PENDENTE tambem.
+#
+# Nota cancelada nao e receita: fica fora de faturado E de contas a receber.
 ESTADO_PREVISTA = "prevista"
 ESTADO_PENDENTE = "pendente"
+ESTADO_CANCELADA = "cancelada"
 ESTADO_SEM_BAIXA = "sem_baixa"
 ESTADO_RECEBIDA = "recebida"
 
 ESTADOS_EM_ABERTO = (ESTADO_PENDENTE, ESTADO_SEM_BAIXA)
+
+# Marcas que, na observacao de uma nota sem data de recebimento, indicam que
+# ela foi anulada. Sem acento: a comparacao normaliza antes.
+MARCAS_DE_CANCELAMENTO = (
+    "cancel",
+    "erro de emiss",
+    "substitu",
+    "nao faturar",
+    "nao emitir",
+    "duplicid",
+)
+
+# Textos que aparecem na coluna da NF significando "nao emitida".
+NF_NAO_EMITIDA = {"X", "XX", "-", "--"}
 
 
 @dataclass(frozen=True)
@@ -56,13 +83,28 @@ class Nota:
     bloco_secundario: bool = False  # linha fora do bloco principal da aba
 
     @property
+    def cancelada(self) -> bool:
+        """Nota anulada: sem recebimento e com marca de cancelamento na obs.
+
+        A data de recebimento manda: se o dinheiro entrou, a nota valeu,
+        qualquer que seja o texto da observacao.
+        """
+        if self.data_recebimento is not None:
+            return False
+        texto = f"{self.observacoes or ''} {self.nota_livre or ''}"
+        alvo = _sem_acento(texto).lower()
+        return any(m in alvo for m in MARCAS_DE_CANCELAMENTO)
+
+    @property
     def estado(self) -> str:
-        if not self.numero:
+        if not self.numero or self.numero.strip().upper() in NF_NAO_EMITIDA:
             return ESTADO_PREVISTA
         if self.data_recebimento is not None:
             return ESTADO_RECEBIDA
         if self.marcador_pendente:
             return ESTADO_PENDENTE
+        if self.cancelada:
+            return ESTADO_CANCELADA
         return ESTADO_SEM_BAIXA
 
     @property
@@ -74,7 +116,10 @@ class Nota:
 
     @property
     def emitida(self) -> bool:
-        return self.numero is not None
+        """Nota que existe e vale. Cancelada nao conta como faturamento."""
+        return self.estado in (
+            ESTADO_RECEBIDA, ESTADO_PENDENTE, ESTADO_SEM_BAIXA
+        )
 
     @property
     def em_aberto(self) -> bool:

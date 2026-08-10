@@ -20,6 +20,7 @@ import openpyxl
 
 from . import normalize as nz
 from . import schema as sch
+from .models import ESTADO_CANCELADA as models_ESTADO_CANCELADA
 from .models import ESTADO_SEM_BAIXA as models_ESTADO_SEM_BAIXA
 from .models import (
     Aviso,
@@ -514,10 +515,11 @@ def _ler_reembolsos(base: str, indice: Indice) -> None:
 
 
 def _avisar_notas_sem_baixa(indice: Indice) -> None:
-    """Avisa sobre notas emitidas cuja coluna de recebimento ficou vazia.
+    """Avisa sobre nota sem data de recebimento que tambem nao se explica.
 
-    Nao e a mesma coisa que uma nota marcada PENDENTE, e o sistema nunca soma
-    as duas caladamente. Ver pergunta 12 do mapeamento.
+    Nota anulada nao entra aqui: ela traz marca de cancelamento na observacao
+    e vira estado "cancelada". Sobra o que ficou sem historia nenhuma, que e
+    onde alguem precisa olhar.
     """
     sem_baixa = [
         n
@@ -533,12 +535,11 @@ def _avisar_notas_sem_baixa(indice: Indice) -> None:
             arquivo="Faturamento (ambos os CNPJs)",
             aba=", ".join(abas),
             mensagem=(
-                f"{len(sem_baixa)} notas emitidas estão com a coluna de "
-                f"recebimento vazia, somando "
-                f"{nz.moeda(sum(n.valor for n in sem_baixa))}. Não estão "
-                f"marcadas PENDENTE, porque o marcador só passou a ser usado "
-                f"em julho de 2026. Podem ser cobranças vivas ou baixas que "
-                f"ninguém registrou. Pergunta 12 do mapeamento, em aberto."
+                f"{len(sem_baixa)} notas emitidas estão sem data de "
+                f"recebimento e sem explicação na observação, somando "
+                f"{nz.moeda(sum(n.valor for n in sem_baixa))}. Não dá para "
+                f"saber se são cobrança viva ou baixa não registrada. "
+                f"Confirmar com o financeiro."
             ),
         )
     )

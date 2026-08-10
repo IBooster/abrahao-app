@@ -173,6 +173,31 @@ def _proporcao_liquido(
     return dominante, len(recentes), contagem
 
 
+def _proporcao_da_casa(ix: Indice, entidade: str) -> tuple[Optional[float], float]:
+    """Retencao que o CNPJ pratica na maioria das notas.
+
+    Serve para cliente novo, que nao tem historico proprio. Na sociedade
+    principal sao 6,15% em 93% das notas; na Rafaela, que e do Simples, a
+    maioria sai sem retencao. E chute com lastro, e a proposta diz isso.
+    """
+    notas = [
+        n for n in ix.notas
+        if n.entidade == entidade and n.emitida and not n.bloco_secundario
+        and n.valor_bruto and n.valor_liquido and n.valor_bruto > 0
+    ]
+    if len(notas) < 10:
+        return None, 0.0
+    contagem: dict[float, int] = {}
+    for n in notas:
+        r = round(n.valor_liquido / n.valor_bruto, 4)
+        contagem[r] = contagem.get(r, 0) + 1
+    dominante, vezes = max(contagem.items(), key=lambda x: x[1])
+    fatia = vezes / len(notas)
+    if fatia < 0.6:
+        return None, fatia
+    return dominante, fatia
+
+
 def _aba_do_mes(ix: Indice, entidade: str, mes: int, ano: int) -> Optional[str]:
     for n in ix.notas:
         if n.entidade == entidade and n.mes == mes and n.ano == ano:
@@ -251,6 +276,28 @@ def propor_nota_emitida(
 
     if valor_liquido is None:
         prop, quantas, contagem = _proporcao_liquido(ix, cliente, codigo)
+
+        # Cliente novo nao tem historico. Em vez de deixar a usuaria no vacuo,
+        # oferece a retencao que o CNPJ pratica na maioria das notas, dizendo
+        # que e padrao da casa e nao do cliente.
+        if prop is None and not quantas:
+            casa, fatia = _proporcao_da_casa(ix, codigo)
+            if casa is not None:
+                valor_liquido = round(valor_bruto * casa, 2)
+                p.inferido["Valor líquido"] = (
+                    f"{nz.moeda(valor_liquido)} — {cliente} não tem nota "
+                    f"anterior, então usei a retenção padrão de "
+                    f"{sch.ENTIDADES[codigo].nome}: {(1 - casa) * 100:.2f}%, "
+                    f"praticada em {fatia * 100:.0f}% das notas desse CNPJ. "
+                    f"Confira antes de confirmar."
+                )
+                p.avisos.append(
+                    "O valor líquido saiu do padrão do CNPJ, não do contrato "
+                    "deste cliente. Se a retenção dele for outra, me diga o "
+                    "líquido correto."
+                )
+                prop = casa
+
         if prop is None:
             if quantas:
                 taxas = ", ".join(
@@ -268,22 +315,27 @@ def propor_nota_emitida(
             )
             return p
 
-        valor_liquido = round(valor_bruto * prop, 2)
-        retido = valor_bruto - valor_liquido
-        nota_extra = ""
-        if len(contagem) > 1:
-            outras = ", ".join(
-                f"{(1 - r) * 100:.2f}%" for r in sorted(contagem) if r != prop
+        # Quando o padrao da casa ja foi aplicado acima, a explicacao correta
+        # ja esta em p.inferido - nao sobrescrever com a do historico do
+        # cliente, que nesse caso nem existe.
+        if "Valor líquido" not in p.inferido:
+            valor_liquido = round(valor_bruto * prop, 2)
+            retido = valor_bruto - valor_liquido
+            nota_extra = ""
+            if len(contagem) > 1:
+                outras = ", ".join(
+                    f"{(1 - r) * 100:.2f}%" for r in sorted(contagem) if r != prop
+                )
+                nota_extra = (
+                    f"; atenção, "
+                    f"{sum(v for r, v in contagem.items() if r != prop)} "
+                    f"das últimas {quantas} usaram {outras}"
+                )
+            p.inferido["Valor líquido"] = (
+                f"{nz.moeda(valor_liquido)} — retenção de "
+                f"{(1 - prop) * 100:.2f}% ({nz.moeda(retido)}), praticada em "
+                f"{contagem[prop]} das últimas {quantas} notas{nota_extra}"
             )
-            nota_extra = (
-                f"; atenção, {sum(v for r, v in contagem.items() if r != prop)} "
-                f"das últimas {quantas} usaram {outras}"
-            )
-        p.inferido["Valor líquido"] = (
-            f"{nz.moeda(valor_liquido)} — retenção de {(1 - prop) * 100:.2f}% "
-            f"({nz.moeda(retido)}), praticada em "
-            f"{contagem[prop]} das últimas {quantas} notas{nota_extra}"
-        )
     if valor_bruto is None:
         valor_bruto = valor_liquido
 

@@ -166,21 +166,59 @@ class ProvedorRegras(Provedor):
 
     # Verbos que indicam que o dinheiro ENTROU, nao que a nota foi emitida.
     _RECEBER = (
-        "recebemos", "recebeu", "caiu", "entrou", "pagou", "quitou",
+        "recebemos", "recebeu", "pagou", "quitou",
         "deu baixa", "dar baixa", "foi paga", "foi pago",
     )
-    _EMITIR = (
-        "emitimos", "emiti", "emitiu", "emitida", "faturamos", "faturei",
-        "teve uma nota", "saiu uma nota", "nota nova", "nova nota",
-        "registra uma nota", "registrar uma nota", "lancar uma nota",
+    # Estes so valem perto de dinheiro: "entrou um cliente novo" nao e baixa.
+    _RECEBER_SE_DINHEIRO = ("caiu", "entrou")
+    _DINHEIRO = re.compile(
+        r"(r\$|reais|dinheiro|pagamento|valor|deposito|depósito|"
+        r"\d[\d\.,]*\s*(mil|milh)|na conta|no itau|no itaú|no santander)",
+        re.I,
     )
+    _EMITIR = (
+        "emitimos", "emiti", "emitiu", "emitida", "emitido", "faturamos",
+        "faturei", "faturado para", "teve uma nota", "saiu uma nota",
+        "nota nova", "nova nota", "registra uma nota", "registrar uma nota",
+        "lancar uma nota", "lançar uma nota", "primeira nota",
+    )
+
+    @staticmethod
+    def _negado(baixo: str, termo: str) -> bool:
+        """True quando o termo aparece negado: "ainda nao recebemos".
+
+        Sem isto, "a nota foi emitida mas ainda nao recebemos o pagamento"
+        vira baixa de recebimento - o oposto do que a pessoa disse.
+        """
+        for m in re.finditer(re.escape(termo), baixo):
+            antes = baixo[max(0, m.start() - 26):m.start()]
+            if not re.search(r"\b(nao|nunca|sem|ainda nao|nem)\b", antes):
+                return False  # ao menos uma ocorrencia afirmativa
+        return True
+
+    def _ocorre(self, baixo: str, termos) -> bool:
+        """Termo presente e nao negado."""
+        return any(t in baixo and not self._negado(baixo, t) for t in termos)
 
     def _lancamento(self, texto: str, baixo: str):
         """Extrai (operacao, dados) da frase. Devolve None se nao for lancamento."""
         tem = lambda ts: any(t in baixo for t in ts)
-        if tem(self._RECEBER):
+        emitiu = self._ocorre(baixo, self._EMITIR)
+        recebeu = self._ocorre(baixo, self._RECEBER)
+        if not recebeu and self._DINHEIRO.search(texto):
+            recebeu = self._ocorre(baixo, self._RECEBER_SE_DINHEIRO)
+
+        tem_valor = self._valor(texto) is not None
+
+        # Emissao ganha de recebimento negado: quem diz "emitimos a nota mas
+        # ainda nao recebemos" esta registrando a NOTA, nao a baixa.
+        if emitiu:
+            operacao = "nota_emitida"
+        elif recebeu:
             operacao = "recebimento"
-        elif tem(self._EMITIR) or ("nota" in baixo and tem(_VERBOS_ESCRITA)):
+        elif "nota" in baixo and (tem(_VERBOS_ESCRITA) or tem_valor):
+            # "nota para a T Mining de 10 mil" - fala de nota e de valor, sem
+            # verbo. Nao existe consulta que se pareca com isso.
             operacao = "nota_emitida"
         elif tem(_VERBOS_ESCRITA):
             # Pedido de escrita que ainda nao sei fazer: devolve sem operacao
@@ -218,9 +256,11 @@ class ProvedorRegras(Provedor):
     def _valor(texto: str):
         """Le "50 mil", "R$ 1.234,56", "100000" ou "1,5 milhao"."""
         t = texto.replace(" ", " ")
+        # "milhao" antes de "mil": na alternancia, "mil" casaria o prefixo de
+        # "milhao" e 1,5 milhao viraria 1.500.
         m = re.search(
             r"(?:R\$\s*)?(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:,\d{1,2})?|\d+(?:\.\d{1,2})?)"
-            r"\s*(mil|milh(?:ao|ão|oes|ões))?",
+            r"\s*(milh(?:ao|ão|oes|ões)|mil)?",
             t, re.I,
         )
         if not m:
@@ -239,37 +279,73 @@ class ProvedorRegras(Provedor):
             n = float(bruto)
         except ValueError:
             return None
-        if escala.startswith("mil"):
-            n *= 1000
-        elif escala.startswith("milh"):
+        # "milh" antes de "mil": startswith("mil") tambem pega "milhao".
+        if escala.startswith("milh"):
             n *= 1_000_000
+        elif escala.startswith("mil"):
+            n *= 1000
         return round(n, 2)
+
+    # Sufixos societarios que fazem parte do nome e devem ser mantidos.
+    _SUFIXO_EMPRESA = r"(?:ltda|s\.?/?a\.?|me|epp|eireli|sociedade|holding)"
 
     @staticmethod
     def _cliente_lancamento(texto: str):
         """Nome do cliente numa frase de lancamento.
 
-        Procura depois de "para", "do", "da" ou "de", e aceita nome em caixa
-        alta solto ("nota do BMG de 100 mil" -> BMG).
+        Precisa pegar o nome INTEIRO: "a ABC Participacoes Ltda" e o nome que
+        vai para a planilha, nao "ABC". Por isso aceita palavra capitalizada
+        depois da primeira, e nao so caixa alta.
         """
         ignorar = {
             "NOTA", "NF", "CNPJ", "PENDENTE", "ND", "R$", "MIL", "MILHAO",
             "MILHÃO", "REAIS", "VALOR", "CLIENTE", "CONTA", "BANCO", "HOJE",
-            "ONTEM", "RAFAELA", "PRINCIPAL", "MATRIZ",
+            "ONTEM", "RAFAELA", "PRINCIPAL", "MATRIZ", "FECHAMOS", "ENTROU",
+            "CONTRATO", "HONORARIOS", "HONORÁRIOS", "PAGAMENTO", "PRIMEIRA",
         }
-        for padrao in (
-            r"(?:para|pro|pra)\s+(?:a\s+|o\s+)?([A-ZÀ-Ú][A-Za-zÀ-ú0-9&\.\- ]{1,34})",
-            r"\b(?:do|da|de)\s+([A-ZÀ-Ú][A-ZÀ-Ú0-9&\.\- ]{1,34})",
+        # Uma palavra do nome: comeca com maiuscula, ou e sigla em caixa alta.
+        palavra = r"[A-ZÀ-Ú][\wÀ-ú&\.\-]*"
+        padroes = (
+            # "cliente novo, a ABC Participacoes Ltda"
+            rf"(?:cliente|empresa)\s+(?:nov[oa]\s*,?\s*)?(?:a|o)?\s*"
+            rf"({palavra}(?:\s+{palavra}){{0,4}})",
+            # "para a ABC Participacoes Ltda"
+            rf"(?:para|pro|pra)\s+(?:a\s+|o\s+)?({palavra}(?:\s+{palavra}){{0,4}})",
+            # "nota do BMG", "da FLAPA"
+            rf"\b(?:do|da|de)\s+({palavra}(?:\s+{palavra}){{0,3}})",
+            # sigla solta em caixa alta
             r"\b([A-ZÀ-Ú]{2,}(?:\s+[A-ZÀ-Ú0-9&\.]{2,}){0,3})\b",
-        ):
+        )
+        for padrao in padroes:
             for m in re.finditer(padrao, texto):
-                cand = m.group(1).strip(" .-")
-                cand = re.split(r"\s+(?:de|no|na|em|por)\s+", cand)[0].strip()
+                cand = m.group(1).strip(" ,-")
+                # Corta em conectivo, mas preserva sufixo societario.
+                cand = re.split(
+                    r"\s+(?:de|no|na|em|por|com|que|referente)\s+", cand
+                )[0].strip(" ,-")
+                # O nome termina no sufixo societario, quando houver: em
+                # "ABC Participacoes Ltda. Fechamos um contrato", o nome
+                # acaba no "Ltda".
+                # Guloso de proposito: "FCF Holding Ltda" termina no Ltda,
+                # nao no Holding.
+                sufixo = re.search(
+                    rf"^(.*\b{ProvedorRegras._SUFIXO_EMPRESA}\.?)(?:\s|$)",
+                    cand, re.I,
+                )
+                if sufixo:
+                    cand = sufixo.group(1)
+                else:
+                    # Sem sufixo, corta no fim da frase.
+                    cand = re.split(r"\.\s+[A-ZÀ-Ú]", cand)[0]
+                cand = cand.strip(" ,-")
                 if not cand or cand.upper() in ignorar:
                     continue
                 if re.fullmatch(r"[\d\.,/]+", cand):
                     continue
                 if nz.numero_mes(cand) is not None:
+                    continue
+                # Uma palavra so, minuscula, quase sempre e falso positivo.
+                if cand.islower():
                     continue
                 return cand
         return None

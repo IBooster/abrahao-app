@@ -14,6 +14,7 @@ Duas garantias que este modulo mantem:
 from __future__ import annotations
 
 import datetime as dt
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
@@ -56,6 +57,10 @@ class Roteador:
         # memoria: se o servico reiniciar, a usuaria refaz o pedido - melhor
         # do que aplicar algo que ela nao viu.
         self._pendentes: dict[str, Any] = {}
+        # Lancamento em construcao: o que a usuaria pediu e ainda esta
+        # incompleto. Sem isso, a resposta dela a uma pergunta minha chega
+        # como frase solta e vira consulta aleatoria.
+        self._rascunho: Optional[dict[str, Any]] = None
 
     # -- entrada principal -------------------------------------------------
 
@@ -86,7 +91,19 @@ class Roteador:
             escolha = ProvedorRegras(E.CATALOGO).escolher(pergunta, contexto)
             escolha.fornecedor = f"regras (queda: {type(erro).__name__})"
 
+        # Havia um lancamento pela metade? A frase pode ser a resposta a
+        # pergunta que fiz, e nao um pedido novo.
+        if self._rascunho and not escolha.operacao:
+            complemento = self._complementar(pergunta, escolha)
+            if complemento is not None:
+                return complemento
+
         if escolha.operacao:
+            if escolha.operacao != "nao_suportada":
+                self._rascunho = {
+                    "operacao": escolha.operacao,
+                    "dados": dict(escolha.dados),
+                }
             return self._lancamento(escolha)
 
         if not escolha.consulta:
@@ -134,6 +151,65 @@ class Roteador:
 
         return self._formatar(resultado, escolha, indice)
 
+    # -- continuidade da conversa ------------------------------------------
+
+    # Frases curtas que so fazem sentido como resposta a uma pergunta minha.
+    _RESPOSTA_CURTA = re.compile(
+        r"^\s*(sim|nao|não|e|é|eh|ok|isso|esse|essa|pode ser|"
+        r"principal|matriz|rafaela|individual|simples|"
+        r"itau|itaú|inter|inter ?[123]|santander|omie ?cash|"
+        r"cliente novo|novo cliente|primeiro|nova)\b",
+        re.I,
+    )
+
+    def _complementar(self, pergunta: str, escolha) -> Optional[Resposta]:
+        """Tenta ler a frase como resposta a um lancamento pela metade.
+
+        So assume isso quando a frase e curta, ou fala de CNPJ, conta, valor
+        ou cliente. Pergunta clara de consulta continua sendo consulta.
+        """
+        from ..llm.provedores import ProvedorRegras
+
+        texto = pergunta.strip()
+        curta = len(texto.split()) <= 8
+        parece_resposta = bool(self._RESPOSTA_CURTA.match(texto)) or curta
+        if not parece_resposta:
+            return None
+
+        extrator = ProvedorRegras(E.CATALOGO)
+        novos: dict[str, Any] = {}
+
+        baixo = nz.sem_acento(texto).lower()
+        if "rafaela" in baixo or "individual" in baixo or "simples" in baixo:
+            novos["entidade"] = "rafaela"
+        elif "principal" in baixo or "matriz" in baixo:
+            novos["entidade"] = "principal"
+
+        conta = extrator._conta(baixo)
+        if conta:
+            novos["conta"] = conta
+
+        valor = extrator._valor(texto)
+        if valor is not None:
+            campo = (
+                "valor_liquido"
+                if self._rascunho["operacao"] == "nota_emitida"
+                else "valor"
+            )
+            novos[campo] = valor
+
+        cliente = extrator._cliente_lancamento(texto)
+        if cliente and "cliente" not in self._rascunho["dados"]:
+            novos["cliente"] = cliente
+
+        if not novos:
+            return None
+
+        self._rascunho["dados"].update(novos)
+        escolha.operacao = self._rascunho["operacao"]
+        escolha.dados = dict(self._rascunho["dados"])
+        return self._lancamento(escolha)
+
     # -- lancamentos -------------------------------------------------------
 
     def _lancamento(self, escolha) -> Resposta:
@@ -175,6 +251,7 @@ class Roteador:
             )
 
         self._pendentes[proposta.token] = proposta
+        self._rascunho = None  # completou: nao ha mais o que perguntar
         return Resposta(
             texto=proposta.resumo,
             tipo="confirmacao",
@@ -191,9 +268,13 @@ class Roteador:
                         "aba": a.aba.strip(),
                         "linha": a.linha,
                         "acao": a.acao,
+                        # So o que sera de fato gravado. Celula vazia na
+                        # proposta nao e escrita, e mostra-la faria a conta
+                        # nao bater com o "gravei N celulas" do final.
                         "celulas": [
                             {"ref": c.ref, "coluna": c.coluna, "valor": c.exibicao}
                             for c in a.celulas
+                            if c.valor is not None
                         ],
                     }
                     for a in proposta.alvos
@@ -205,6 +286,7 @@ class Roteador:
         """Aplica uma proposta que a usuaria confirmou."""
         from .. import lancamentos as lanc
 
+        self._rascunho = None
         proposta = self._pendentes.pop(token, None)
         if proposta is None:
             return Resposta(
@@ -248,6 +330,7 @@ class Roteador:
         )
 
     def cancelar(self, token: str) -> Resposta:
+        self._rascunho = None
         existia = self._pendentes.pop(token, None) is not None
         return Resposta(
             texto=(

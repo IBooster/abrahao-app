@@ -14,6 +14,7 @@ import datetime as dt
 import hashlib
 import os
 import threading
+from dataclasses import replace
 from typing import Any, Iterator, Optional
 
 import openpyxl
@@ -191,7 +192,13 @@ def _ler_mapa_cnpj(wb, entidade: sch.Entidade, indice: Indice) -> None:
 
 
 def _avisar_blocos_secundarios(entidade: sch.Entidade, indice: Indice) -> None:
-    """Avisa sobre os blocos fora do layout e sobre repeticao entre meses."""
+    """Marca o cronograma de acordo vigente e explica o que ele e.
+
+    O bloco fora do layout e o controle paralelo de um acordo parcelado: a
+    nota cheia foi cancelada e o saldo virou parcelas a faturar mes a mes.
+    Como o bloco e reapresentado a cada mes, so a versao mais recente vale -
+    somar julho e agosto contaria a mesma divida duas vezes.
+    """
     secundarias = [
         n
         for n in indice.notas
@@ -204,45 +211,36 @@ def _avisar_blocos_secundarios(entidade: sch.Entidade, indice: Indice) -> None:
     for n in secundarias:
         por_aba.setdefault(n.aba, []).append(n)
 
-    for aba, linhas in por_aba.items():
-        total = sum(n.valor for n in linhas)
-        indice.avisos.append(
-            Aviso(
-                severidade="atencao",
-                arquivo=entidade.arquivo,
-                aba=aba,
-                mensagem=(
-                    f"{len(linhas)} linhas fora do bloco principal (a partir "
-                    f"da linha {min(n.linha for n in linhas)}), somando "
-                    f"{nz.moeda(total)}. O layout não segue o cabeçalho da "
-                    f"aba, então elas não entram nos totais."
-                ),
-            )
+    # Versao vigente = a do mes mais recente em que o bloco aparece.
+    aba_vigente = max(por_aba, key=lambda a: (por_aba[a][0].ano, por_aba[a][0].mes))
+    vigentes = por_aba[aba_vigente]
+    for n in vigentes:
+        indice.notas[indice.notas.index(n)] = replace(n, acordo_vigente=True)
+
+    total = sum(n.valor for n in vigentes)
+    clientes = ", ".join(sorted({(n.cliente or "?") for n in vigentes}))
+    anteriores = sorted(a.strip() for a in por_aba if a != aba_vigente)
+
+    mensagem = (
+        f"{len(vigentes)} parcelas de acordo a faturar, {clientes}, somando "
+        f"{nz.moeda(total)}. É o controle paralelo: a nota cheia foi "
+        f"cancelada e o saldo é faturado mês a mês, conforme o cliente "
+        f"recebe. Contei como valor a faturar, não como nota emitida."
+    )
+    if anteriores:
+        mensagem += (
+            f" O mesmo cronograma aparece em {', '.join(anteriores)}; vale a "
+            f"versão de {aba_vigente.strip()}, que é a mais recente."
         )
 
-    # Mesma cobranca repetida em meses diferentes.
-    assinaturas: dict[tuple, list[str]] = {}
-    for n in secundarias:
-        chave_nota = (nz.radical_cliente(n.cliente), round(n.valor, 2), n.referencia)
-        assinaturas.setdefault(chave_nota, []).append(n.aba)
-    repetidas = {k: v for k, v in assinaturas.items() if len(set(v)) > 1}
-    if repetidas:
-        valor_total = sum(k[1] for k in repetidas)
-        abas = sorted({a for v in repetidas.values() for a in v})
-        indice.avisos.append(
-            Aviso(
-                severidade="critico",
-                arquivo=entidade.arquivo,
-                aba=", ".join(abas),
-                mensagem=(
-                    f"{len(repetidas)} cobranças idênticas aparecem em mais de "
-                    f"um mês ({', '.join(abas)}), somando "
-                    f"{nz.moeda(valor_total)}. Pode ser a mesma dívida "
-                    f"arrastada de um mês para o outro. Não somei. "
-                    f"Pergunta 7 do mapeamento, em aberto."
-                ),
-            )
+    indice.avisos.append(
+        Aviso(
+            severidade="info",
+            arquivo=entidade.arquivo,
+            aba=aba_vigente,
+            mensagem=mensagem,
         )
+    )
 
 
 # ---------------------------------------------------------------------------

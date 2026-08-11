@@ -151,16 +151,63 @@ class ProvedorRegras(Provedor):
         elif "principal" in baixo or "matriz" in baixo:
             parametros["entidade"] = "principal"
 
-        cliente = self._cliente(texto)
+        cliente = self._cliente(texto) or self._cliente_lancamento(texto)
         if cliente:
             parametros["cliente"] = cliente
+            # "quanto gastamos com aluguel" nao fala de cliente: aluguel e
+            # categoria. Evita virar consulta de despesa por contrato.
+            if nz.chave(cliente) in {"aluguel", "folha", "imposto", "energia"}:
+                parametros.pop("cliente")
 
         conta = self._conta(baixo)
         if conta:
             parametros["conta"] = conta
 
+        categoria = self._categoria(baixo)
+        if categoria:
+            parametros["categoria"] = categoria
+
         nome = self._consulta(baixo, parametros)
         return Escolha(consulta=nome, parametros=parametros, fornecedor=self.nome)
+
+    # Categorias reais da coluna DESCRICAO, pelo termo que as pessoas usam.
+    _CATEGORIAS = {
+        "aluguel": "ALUGUEL",
+        "condominio": "CONDOMÍNIO",
+        "energia": "ENERGIA",
+        "luz": "ENERGIA",
+        "internet": "INTERNET",
+        "agua": "CONSUMO DE ÁGUA",
+        "folha": "REMUNERACAO",
+        "salario": "REMUNERACAO",
+        "remuneracao": "REMUNERACAO",
+        "imposto": "IMPOSTOS",
+        "freelancer": "FREELANCER",
+        "marketing": "MARKETING",
+        "sistema juridico": "SISTEMA JURÍDICO",
+        "sistema": "SISTEMA",
+        "software": "SISTEMA",
+        "estacionamento": "ESTACIONAMENTO",
+        "alimentacao": "ALIMENTAÇÃO",
+        "plano de saude": "PLANO DE SAUDE",
+        "contabilidade": "CONTABILIDADE",
+        "oab": "ANUIDADE OAB",
+        "diligencia": "DILIGÊNCIAS",
+        "motoboy": "MOTORISTA/MOTOBOY",
+        "motorista": "MOTORISTA/MOTOBOY",
+        "bonificacao": "BONIFICAÇÃO",
+        "cartao": "CARTÃO DE CRÉDITO",
+        "limpeza": "LIMPEZA E MANUTENÇÃO",
+        "seguro": "SEGURO",
+        "tarifa": "TARIFA BANCÁRIA",
+    }
+
+    def _categoria(self, baixo: str) -> Optional[str]:
+        # Termo mais longo primeiro: "sistema juridico" antes de "sistema".
+        for termo in sorted(self._CATEGORIAS, key=len, reverse=True):
+            if termo in baixo:
+                return self._CATEGORIAS[termo]
+        return None
 
     # -- lancamentos -------------------------------------------------------
 
@@ -311,8 +358,8 @@ class ProvedorRegras(Provedor):
             rf"({palavra}(?:\s+{palavra}){{0,4}})",
             # "para a ABC Participacoes Ltda"
             rf"(?:para|pro|pra)\s+(?:a\s+|o\s+)?({palavra}(?:\s+{palavra}){{0,4}})",
-            # "nota do BMG", "da FLAPA"
-            rf"\b(?:do|da|de)\s+({palavra}(?:\s+{palavra}){{0,3}})",
+            # "nota do BMG", "da FLAPA", "e a Dias Engenharia"
+            rf"\b(?:do|da|de|e\s+a|e\s+o)\s+({palavra}(?:\s+{palavra}){{0,3}})",
             # sigla solta em caixa alta
             r"\b([A-ZÀ-Ú]{2,}(?:\s+[A-ZÀ-Ú0-9&\.]{2,}){0,3})\b",
         )
@@ -376,12 +423,24 @@ class ProvedorRegras(Provedor):
         if tem("margem", "dre", "rentabilidade", "lucro"):
             return "margem_cliente"
 
-        if tem("saiu", "gastamos", "gasto", "despesa", "saida", "pagamos"):
+        # Categoria vem antes de conta: "gastamos com aluguel" pergunta pelo
+        # QUE, nao por ONDE. Sem esta ordem, cai em "de qual conta?".
+        categorias = (
+            "categoria", "com o que", "no que", "tipo de despesa", "aluguel",
+            "folha", "remuneracao", "salario", "imposto", "energia",
+            "internet", "condominio", "marketing", "freelancer", "software",
+            "sistema", "diligencia", "estacionamento", "alimentacao",
+            "plano de saude", "contabilidade", "oab", "em que gastamos",
+        )
+        if tem("saiu", "gastamos", "gasto", "despesa", "saida", "pagamos",
+               "custou", "custo"):
+            if tem(*categorias):
+                return "despesas_por_categoria"
             if parametros.get("conta"):
                 return "movimento_conta"
             if parametros.get("cliente"):
                 return "despesas_por_contrato"
-            return "movimento_conta"
+            return "despesas_por_categoria"
 
         if tem("entrou", "recebemos", "recebido", "recebimento", "caiu"):
             return "recebimentos"
@@ -392,14 +451,29 @@ class ProvedorRegras(Provedor):
         if tem("lista", "listar", "quais notas", "me mostra as notas"):
             return "listar_notas"
 
-        if tem("resumo", "panorama", "como estamos", "posicao geral", "geral"):
+        if tem("maior cliente", "cliente que mais", "quais clientes",
+               "ranking", "top clientes", "principais clientes", "paga mais",
+               "pagam mais", "por cliente"):
+            return "ranking_clientes"
+
+        if tem("categoria", "com o que", "no que gastamos", "tipo de despesa",
+               "aluguel", "folha", "remuneracao", "imposto", "energia",
+               "internet", "condominio", "marketing"):
+            return "despesas_por_categoria"
+
+        if tem("resumo", "panorama", "como estamos", "posicao geral",
+               "visao geral", "situacao"):
             return "posicao_geral"
 
         if parametros.get("conta"):
             return "movimento_conta"
         if parametros.get("cliente"):
             return "cliente_posicao"
-        return "posicao_geral"
+
+        # Nao reconheceu. Devolver a posicao geral aqui faria o chat responder
+        # a mesma coisa para qualquer frase - inclusive "oi" e "obrigado" -, e
+        # e assim que ele parece travado. Melhor admitir que nao entendeu.
+        return None
 
     def _cliente(self, texto: str) -> Optional[str]:
         padroes = (

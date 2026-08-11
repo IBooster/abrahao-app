@@ -155,6 +155,16 @@ def faturamento(
     sem_baixa = [n for n in emitidas if n.estado == ESTADO_SEM_BAIXA]
     canceladas = [n for n in notas if n.estado == ESTADO_CANCELADA]
     previstas = [n for n in notas if n.estado == ESTADO_PREVISTA]
+    # Parcelas de acordo: divida real, ainda nao faturada. Vem de fora de
+    # _notas_do_periodo, que exclui bloco secundario. Contadas uma vez, da
+    # versao vigente do cronograma, e sem filtro de mes: o cronograma e do
+    # acordo inteiro, nao do mes em que foi reapresentado.
+    acordo = [
+        n for n in ix.notas
+        if n.acordo_vigente
+        and (ano is None or n.ano == ano)
+        and (codigo is None or n.entidade == codigo)
+    ]
 
     soma = lambda ns: sum(n.valor for n in ns)
     periodo = _rotulo_periodo(mes, ano)
@@ -177,6 +187,7 @@ def faturamento(
             "sem_baixa": soma(sem_baixa),
             "previsto": soma(previstas),
             "cancelado": soma(canceladas),
+            "acordo_a_faturar": soma(acordo),
         },
         fonte=sorted({_origem_nota(n).split(" > ")[0] for n in notas}),
     )
@@ -210,12 +221,28 @@ def faturamento(
                 f"{len(canceladas)} notas",
             )
         )
+    if acordo:
+        res.linhas.append(
+            Linha(
+                "Acordo parcelado, a faturar",
+                soma(acordo),
+                f"{len(acordo)} parcelas",
+            )
+        )
 
     if canceladas:
         res.avisos.append(
             f"{len(canceladas)} notas do período foram canceladas "
             f"({nz.moeda(soma(canceladas))}) e ficam fora do faturamento. "
             f"A maioria foi substituída por outra NF, que entra normalmente."
+        )
+    if acordo:
+        quem = ", ".join(sorted({(n.cliente or "?") for n in acordo}))
+        res.avisos.append(
+            f"{nz.moeda(soma(acordo))} de {quem} são parcelas de acordo ainda "
+            f"a faturar: a nota cheia foi cancelada e o saldo é faturado mês a "
+            f"mês, conforme o cliente recebe. É dívida real, mas ainda não é "
+            f"nota emitida."
         )
     if sem_baixa:
         res.avisos.append(
@@ -403,30 +430,40 @@ def cliente_posicao(
         for d in ix.notas_debito
         if d.em_aberto and nz.cliente_bate(cliente, d.cliente)
     ]
+    # Parcelas de acordo: divida real, ainda nao faturada. Ficam fora das
+    # notas em aberto, mas o cliente deve.
+    acordo = [
+        n for n in ix.notas
+        if n.acordo_vigente and nz.cliente_bate(cliente, n.cliente)
+    ]
+    total_acordo = sum(n.valor for n in acordo)
     total_nd = sum(d.valor or 0.0 for d in nds)
     total_notas = sum(n.valor for n in abertas)
+
+    partes = [f"{nz.moeda(total_notas)} em {len(abertas)} notas em aberto"]
+    if nds:
+        partes.append(
+            f"{nz.moeda(total_nd)} em "
+            + ("1 nota de débito" if len(nds) == 1 else f"{len(nds)} notas de débito")
+        )
+    if acordo:
+        partes.append(
+            f"{nz.moeda(total_acordo)} em {len(acordo)} parcelas de acordo "
+            f"ainda a faturar"
+        )
 
     res = Resultado(
         titulo=f"Posição de {nome_real}",
         resumo=(
-            f"{nome_real} deve {nz.moeda(total_notas + total_nd)}: "
-            f"{nz.moeda(total_notas)} em {len(abertas)} notas em aberto"
-            + (
-                f" e {nz.moeda(total_nd)} em "
-                + (
-                    "1 nota de débito."
-                    if len(nds) == 1
-                    else f"{len(nds)} notas de débito."
-                )
-                if nds
-                else "."
-            )
-            + f" Já pagou {nz.moeda(sum(n.valor for n in recebidas))} em 2026."
+            f"{nome_real} deve {nz.moeda(total_notas + total_nd + total_acordo)}: "
+            + ", ".join(partes[:-1] + [f"e {partes[-1]}"] if len(partes) > 1 else partes)
+            + f". Já pagou {nz.moeda(sum(n.valor for n in recebidas))} em 2026."
         ),
         numeros={
             "em_aberto": total_notas,
             "notas_debito": total_nd,
-            "devido": total_notas + total_nd,
+            "acordo_a_faturar": total_acordo,
+            "devido": total_notas + total_nd + total_acordo,
             "recebido_2026": sum(n.valor for n in recebidas),
         },
         fonte=sorted({_origem_nota(n).split(" > ")[0] for n in notas}),
@@ -451,6 +488,25 @@ def cliente_posicao(
                 origem=f"{sch.ARQ_FLUXO} > {d.aba} > linha {d.linha}",
                 estado="nota de débito em aberto",
             )
+        )
+    for n in sorted(acordo, key=lambda x: x.linha):
+        res.linhas.append(
+            Linha(
+                rotulo="Parcela de acordo",
+                valor=n.valor,
+                detalhe=(
+                    f"competência {n.referencia}"
+                    + (f" - {n.observacoes}" if n.observacoes else "")
+                ),
+                origem=_origem_nota(n),
+                estado="a faturar",
+            )
+        )
+    if acordo:
+        res.avisos.append(
+            "As parcelas de acordo ainda não foram faturadas: a nota cheia foi "
+            "cancelada e o saldo é faturado mês a mês, conforme o cliente "
+            "recebe. Por isso não aparecem como nota em aberto."
         )
     return res
 
@@ -895,6 +951,7 @@ def posicao_geral(ix: Indice, ano: Optional[int] = 2026, **_: Any) -> Resultado:
         Linha("A receber, marcado PENDENTE", fat.numeros["pendente"]),
         Linha("A receber, sem baixa registrada", fat.numeros["sem_baixa"]),
         Linha("Previsto, nota não emitida", fat.numeros["previsto"]),
+        Linha("Acordo parcelado, a faturar", fat.numeros.get("acordo_a_faturar", 0.0)),
         Linha("Reembolsos em aberto", reemb.numeros["total"]),
         Linha(
             f"Recebido em {nz.rotulo_mes(hoje.month, hoje.year)}",
@@ -954,6 +1011,142 @@ def listar_notas(
                 estado=ROTULO_ESTADO.get(n.estado),
             )
         )
+    return res
+
+
+# ---------------------------------------------------------------------------
+# 12. Ranking de clientes
+# ---------------------------------------------------------------------------
+
+
+def ranking_clientes(
+    ix: Indice,
+    ano: Optional[int] = 2026,
+    mes: Optional[int] = None,
+    **_: Any,
+) -> Resultado:
+    """Quem mais faturou no periodo, do maior para o menor."""
+    notas = [
+        n for n in _notas_do_periodo(ix, mes, ano, None) if n.emitida
+    ]
+    if not notas:
+        return Resultado(
+            titulo="Clientes por faturamento",
+            resumo=f"Não encontrei notas em {_rotulo_periodo(mes, ano)}.",
+        )
+
+    por_cliente: dict[str, list[Nota]] = {}
+    for n in notas:
+        por_cliente.setdefault(nz.radical_cliente(n.cliente).upper(), []).append(n)
+
+    ordenado = sorted(
+        por_cliente.items(), key=lambda x: -sum(n.valor for n in x[1])
+    )
+    total = sum(n.valor for n in notas)
+    topo = ordenado[0]
+    fatia = sum(n.valor for n in topo[1]) / total * 100 if total else 0
+
+    periodo = _rotulo_periodo(mes, ano)
+    res = Resultado(
+        titulo=f"Clientes por faturamento em {periodo}",
+        resumo=(
+            f"{len(ordenado)} clientes faturados em {periodo}, somando "
+            f"{nz.moeda(total)}. O maior é {topo[0]}, com "
+            f"{nz.moeda(sum(n.valor for n in topo[1]))}, "
+            f"{fatia:.0f}% do total."
+        ),
+        numeros={"total": total, "clientes": float(len(ordenado))},
+        fonte=sorted({_origem_nota(n).split(" > ")[0] for n in notas}),
+    )
+    for nome, ns in ordenado:
+        valor = sum(n.valor for n in ns)
+        recebido = sum(n.valor for n in ns if n.estado == ESTADO_RECEBIDA)
+        res.linhas.append(
+            Linha(
+                rotulo=nome,
+                valor=valor,
+                detalhe=(
+                    f"{len(ns)} notas · {valor / total * 100:.1f}% do total · "
+                    f"{nz.moeda(recebido)} já recebido"
+                ),
+            )
+        )
+    if fatia > 40:
+        res.avisos.append(
+            f"{topo[0]} concentra {fatia:.0f}% do faturamento do período. "
+            f"Vale ter em mente ao olhar o resultado."
+        )
+    return res
+
+
+# ---------------------------------------------------------------------------
+# 13. Despesas por categoria
+# ---------------------------------------------------------------------------
+
+
+def despesas_por_categoria(
+    ix: Indice,
+    mes: Optional[int] = None,
+    ano: Optional[int] = 2026,
+    categoria: Optional[str] = None,
+    **_: Any,
+) -> Resultado:
+    """Em que o escritorio gastou, agrupado pela coluna DESCRICAO."""
+    lanc = [
+        l for l in _lancamentos(ix)
+        if l.saida > 0 and l.natureza == "despesa" and l.data is not None
+    ]
+    if ano is not None:
+        lanc = [l for l in lanc if l.data.year == ano]
+    if mes is not None:
+        lanc = [l for l in lanc if l.data.month == mes]
+    if categoria:
+        alvo = nz.chave(categoria)
+        lanc = [l for l in lanc if alvo in nz.chave(l.descricao)]
+
+    if not lanc:
+        alvo = f" de '{categoria}'" if categoria else ""
+        return Resultado(
+            titulo="Despesas por categoria",
+            resumo=(
+                f"Não encontrei despesa{alvo} em "
+                f"{_rotulo_periodo(mes, ano)}."
+            ),
+        )
+
+    por_cat: dict[str, float] = {}
+    contagem: dict[str, int] = {}
+    for l in lanc:
+        c = (l.descricao or "?").strip().upper()
+        por_cat[c] = por_cat.get(c, 0.0) + l.saida
+        contagem[c] = contagem.get(c, 0) + 1
+
+    total = sum(por_cat.values())
+    periodo = _rotulo_periodo(mes, ano)
+    ordenado = sorted(por_cat.items(), key=lambda x: -x[1])
+
+    res = Resultado(
+        titulo=f"Despesas por categoria em {periodo}",
+        resumo=(
+            f"{nz.moeda(total)} em despesa operacional em {periodo}, "
+            f"em {len(ordenado)} categorias. A maior é "
+            f"{ordenado[0][0].title()}, com {nz.moeda(ordenado[0][1])}."
+        ),
+        numeros={"total": total, "categorias": float(len(ordenado))},
+        fonte=[sch.ARQ_FLUXO],
+    )
+    for c, v in ordenado[:25]:
+        res.linhas.append(
+            Linha(
+                rotulo=c.title(),
+                valor=v,
+                detalhe=f"{contagem[c]} lançamentos · {v / total * 100:.1f}%",
+            )
+        )
+    res.avisos.append(
+        "Não inclui adiantamento de guia nem transferência entre contas: "
+        "nenhum dos dois é despesa do escritório."
+    )
     return res
 
 
@@ -1088,6 +1281,30 @@ CATALOGO: dict[str, Consulta] = {
         descricao="Panorama do ano: faturado, recebido, a receber e reembolsos.",
         parametros={"ano": "ano, padrao 2026"},
         exemplos=("Como estamos?", "Me da um resumo geral."),
+    ),
+    "ranking_clientes": Consulta(
+        nome="ranking_clientes",
+        funcao=ranking_clientes,
+        descricao="Clientes ordenados por faturamento, do maior para o menor.",
+        parametros={"ano": "ano, padrao 2026", "mes": "numero do mes 1-12"},
+        exemplos=("Qual cliente paga mais?", "Ranking de clientes"),
+    ),
+    "despesas_por_categoria": Consulta(
+        nome="despesas_por_categoria",
+        funcao=despesas_por_categoria,
+        descricao=(
+            "Em que o escritorio gastou, agrupado por categoria de despesa "
+            "(remuneracao, aluguel, impostos, sistema juridico)."
+        ),
+        parametros={
+            "mes": "numero do mes 1-12",
+            "ano": "ano, padrao 2026",
+            "categoria": "filtra uma categoria, ex: aluguel",
+        },
+        exemplos=(
+            "Quanto gastamos com aluguel?",
+            "Em que gastamos mais este mes?",
+        ),
     ),
     "listar_notas": Consulta(
         nome="listar_notas",

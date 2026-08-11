@@ -82,6 +82,13 @@
     rolar();
   }
 
+  /* Remover so se ainda estiver na tela. Chamar removeChild duas vezes lanca
+     TypeError, e se isso acontecer dentro do catch a resposta some sem
+     explicacao nenhuma. */
+  function removerPensando(turno) {
+    if (turno && turno.parentNode) turno.parentNode.removeChild(turno);
+  }
+
   function addPensando() {
     var turno = elemento(
       '<div class="turno" data-pensando="1">' +
@@ -242,12 +249,15 @@
         return r.json();
       })
       .then(function (dados) {
+        /* Tirar os pontinhos SEMPRE, inclusive quando nao veio resposta.
+           Antes, o caminho sem dados deixava a animacao girando para sempre e
+           o chat parecia travado. */
+        removerPensando(pensando);
         if (!dados) return;
-        pensando.parentNode.removeChild(pensando);
         addResposta(dados);
       })
       .catch(function (erro) {
-        pensando.parentNode.removeChild(pensando);
+        removerPensando(pensando);
         addResposta({
           tipo: "erro",
           titulo: "Não deu certo",

@@ -88,8 +88,21 @@ class Roteador:
         except Exception as erro:  # falha de rede, credencial, cota
             from ..llm.provedores import ProvedorRegras
 
-            escolha = ProvedorRegras(E.CATALOGO).escolher(pergunta, contexto)
-            escolha.fornecedor = f"regras (queda: {type(erro).__name__})"
+            try:
+                escolha = ProvedorRegras(E.CATALOGO).escolher(pergunta, contexto)
+                escolha.fornecedor = f"regras (queda: {type(erro).__name__})"
+            except Exception as erro2:
+                # Nem a queda funcionou. Responder mesmo assim: uma excecao
+                # aqui derrubaria a rota e o chat ficaria mudo na tela.
+                return Resposta(
+                    texto=(
+                        "Tive um problema para interpretar essa frase. "
+                        "Tente escrever de outro jeito, mais curto.\n\n"
+                        f"Detalhe técnico: {type(erro2).__name__}: {erro2}"
+                    ),
+                    tipo="erro",
+                    titulo="Não consegui interpretar",
+                )
 
         # Havia um lancamento pela metade? A frase pode ser a resposta a
         # pergunta que fiz, e nao um pedido novo.
@@ -107,16 +120,7 @@ class Roteador:
             return self._lancamento(escolha)
 
         if not escolha.consulta:
-            return Resposta(
-                texto=escolha.resposta_livre
-                or (
-                    "Não entendi o que você quer saber. Posso responder sobre "
-                    "faturamento, recebimentos, contas a receber, reembolsos, "
-                    "guias e movimento das contas."
-                ),
-                tipo="pergunta",
-                fornecedor=escolha.fornecedor,
-            )
+            return self._nao_entendi(pergunta, escolha)
 
         try:
             indice = self.repositorio.indice()
@@ -150,6 +154,62 @@ class Roteador:
             )
 
         return self._formatar(resultado, escolha, indice)
+
+    # -- quando nao entende ------------------------------------------------
+
+    _SAUDACAO = re.compile(
+        r"^\s*(oi|ola|olá|bom dia|boa tarde|boa noite|e ai|eai|opa|"
+        r"obrigad[oa]|valeu|tudo bem|beleza|tchau|ate mais|até mais)\b",
+        re.I,
+    )
+
+    def _nao_entendi(self, pergunta: str, escolha) -> Resposta:
+        """Admite que nao entendeu e mostra o que sabe fazer.
+
+        Antes o sistema caia na posicao geral para qualquer frase, entao "oi",
+        "obrigado" e "asdf" devolviam o mesmo painel do ano - e parecia que o
+        chat tinha travado numa resposta so.
+        """
+        if escolha.resposta_livre:
+            return Resposta(
+                texto=escolha.resposta_livre,
+                tipo="pergunta",
+                fornecedor=escolha.fornecedor,
+            )
+
+        if self._SAUDACAO.match(pergunta.strip()):
+            return Resposta(
+                texto=(
+                    "Oi! Pergunte o que quiser sobre o financeiro do "
+                    "escritório, em português mesmo. Se quiser ver do que sou "
+                    "capaz, peça \"o que você sabe responder\"."
+                ),
+                tipo="pergunta",
+                titulo="Pode perguntar",
+                fornecedor=escolha.fornecedor,
+            )
+
+        exemplos = [
+            "Quanto faturamos em julho?",
+            "Quanto ainda temos para receber?",
+            "Quanto o BMG nos deve?",
+            "Quais reembolsos estão pendentes?",
+            "Qual cliente paga mais?",
+            "Quanto gastamos com aluguel?",
+            "Quanto saiu do Santander este mês?",
+        ]
+        lista = "\n".join(f"  {e}" for e in exemplos)
+        return Resposta(
+            texto=(
+                f"Não entendi essa. Reformule com o que você quer saber, ou "
+                f"experimente uma destas:\n\n{lista}\n\n"
+                f"Para lançar, diga o que aconteceu: \"teve uma nota do BMG "
+                f"de 100 mil\" ou \"recebemos a nota 240/2026\"."
+            ),
+            tipo="pergunta",
+            titulo="Não entendi",
+            fornecedor=escolha.fornecedor,
+        )
 
     # -- continuidade da conversa ------------------------------------------
 

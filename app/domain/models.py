@@ -80,7 +80,19 @@ class Nota:
     nota_livre: Optional[str]  # coluna H
     mes: int
     ano: int
-    bloco_secundario: bool = False  # linha fora do bloco principal da aba
+    # Linha fora do bloco principal da aba. No arquivo do CNPJ principal esse
+    # bloco e o CONTROLE PARALELO DE ACORDO: o escritorio faturou o total de
+    # uma divida, o cliente so aceitou pagar conforme fosse recebendo, entao a
+    # nota cheia foi cancelada e o saldo virou um cronograma de parcelas a
+    # faturar mes a mes. Confirmado com o escritorio em agosto de 2026.
+    #
+    # O bloco e reapresentado a cada mes com o saldo que resta, entao a mesma
+    # parcela aparece em julho E agosto. Vale a versao do mes mais recente;
+    # as anteriores sao retrato antigo do mesmo acordo.
+    bloco_secundario: bool = False
+    # True quando esta e a versao vigente do cronograma. Versao antiga fica
+    # False e nao entra em conta nenhuma.
+    acordo_vigente: bool = False
 
     @property
     def cancelada(self) -> bool:

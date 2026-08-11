@@ -142,3 +142,49 @@ def test_numero_da_nota_nao_vira_valor(p):
 def test_nome_do_cliente_vem_inteiro(p, frase, esperado):
     """O nome vai para a planilha: truncar perde a identificacao do cliente."""
     assert p.escolher(frase, "").dados.get("cliente") == esperado
+
+
+# ---------------------------------------------------------------------------
+# Nunca responder a mesma coisa para tudo
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "frase",
+    ["oi", "bom dia", "obrigado", "xyz abc 123", "???", "asdf"],
+)
+def test_frase_sem_sentido_nao_vira_consulta(p, frase):
+    """O fallback nao pode ser uma consulta.
+
+    Antes, qualquer frase desconhecida caia em posicao_geral: "oi" e "obrigado"
+    devolviam o painel do ano inteiro, e o chat parecia travado numa resposta
+    so. Agora ele admite que nao entendeu.
+    """
+    escolha = p.escolher(frase, "")
+    assert escolha.consulta is None, (
+        f"'{frase}' virou a consulta '{escolha.consulta}'. Frase que o sistema "
+        f"nao entende deve dizer que nao entendeu."
+    )
+
+
+@pytest.mark.parametrize(
+    "frase,esperado",
+    [
+        ("qual cliente paga mais?", "ranking_clientes"),
+        ("quanto gastamos com aluguel?", "despesas_por_categoria"),
+        ("em que gastamos mais este mês?", "despesas_por_categoria"),
+        ("quanto faturamos em julho?", "faturamento"),
+        ("quanto o BMG nos deve?", "cliente_posicao"),
+        ("quanto saiu do Santander?", "movimento_conta"),
+        ("como estamos?", "posicao_geral"),
+    ],
+)
+def test_pergunta_vai_para_a_consulta_certa(p, frase, esperado):
+    assert p.escolher(frase, "").consulta == esperado
+
+
+def test_categoria_e_extraida(p):
+    """"com aluguel" precisa filtrar, senao devolve todas as categorias."""
+    assert p.escolher("quanto gastamos com aluguel?", "").parametros.get(
+        "categoria"
+    ) == "ALUGUEL"

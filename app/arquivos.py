@@ -33,6 +33,7 @@ import datetime as dt
 import io
 import json
 import os
+import secrets
 import shutil
 from dataclasses import dataclass
 from typing import Optional
@@ -294,6 +295,26 @@ def receber(base: str, nome_enviado: str, conteudo: bytes, usuario: str) -> Rece
         backup=os.path.basename(backup) if backup else None,
         abas=len(abas),
     )
+
+
+def chave_de_sessao_persistida(base: str) -> str:
+    """Chave de assinatura do cookie, guardada no volume.
+
+    Existe para nao obrigar ninguem a inventar e colar uma string aleatoria no
+    painel. Fica fora das planilhas, num arquivo proprio, e e criada uma vez.
+    """
+    pasta = os.path.join(base, sch.PASTA_AUDITORIA)
+    _garantir_pasta(pasta)
+    caminho = os.path.join(pasta, "chave-sessao.txt")
+    if os.path.exists(caminho):
+        with open(caminho, encoding="utf-8") as f:
+            guardada = f.read().strip()
+        if len(guardada) >= 32:
+            return guardada
+    nova = secrets.token_hex(32)
+    with open(caminho, "w", encoding="utf-8") as f:
+        f.write(nova)
+    return nova
 
 
 def historico(base: str, limite: int = 20) -> list[dict]:

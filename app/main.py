@@ -84,8 +84,24 @@ def _exigir(sessao: Optional[str]) -> str:
 @asynccontextmanager
 async def _ciclo_de_vida(_: FastAPI):
     if CONFIG.ambiente == "producao" and not CONFIG.autenticacao_configurada:
+        faltando = [
+            nome
+            for nome, valor in (("APP_USUARIO", CONFIG.usuario), ("APP_SENHA", CONFIG.senha))
+            if not valor
+        ]
         raise RuntimeError(
-            "AMBIENTE=producao exige APP_USUARIO e APP_SENHA definidos."
+            "\n"
+            "============================================================\n"
+            "  O APP NAO VAI SUBIR - E DE PROPOSITO\n"
+            "============================================================\n"
+            f"  Falta definir: {', '.join(faltando)}\n"
+            "\n"
+            "  Sem usuario e senha, o financeiro do escritorio ficaria\n"
+            "  aberto para qualquer um que descobrisse a URL.\n"
+            "\n"
+            "  Defina as duas variaveis no painel do Railway e o servico\n"
+            "  reinicia sozinho.\n"
+            "============================================================"
         )
     yield
 

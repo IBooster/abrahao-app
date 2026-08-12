@@ -61,6 +61,9 @@ class Roteador:
         # incompleto. Sem isso, a resposta dela a uma pergunta minha chega
         # como frase solta e vira consulta aleatoria.
         self._rascunho: Optional[dict[str, Any]] = None
+        # Ultimos turnos, com os numeros que ja foram calculados. E o que
+        # permite responder "isso inclui folha?" sem refazer consulta.
+        self._historico: list[dict[str, Any]] = []
 
     # -- entrada principal -------------------------------------------------
 
@@ -84,12 +87,14 @@ class Roteador:
 
         contexto = montar_contexto(E.CATALOGO, dt.date.today())
         try:
-            escolha = self.provedor.escolher(pergunta, contexto)
+            escolha = self.provedor.escolher(pergunta, contexto, self._historico)
         except Exception as erro:  # falha de rede, credencial, cota
             from ..llm.provedores import ProvedorRegras
 
             try:
-                escolha = ProvedorRegras(E.CATALOGO).escolher(pergunta, contexto)
+                escolha = ProvedorRegras(E.CATALOGO).escolher(
+                    pergunta, contexto, self._historico
+                )
                 escolha.fornecedor = f"regras (queda: {type(erro).__name__})"
             except Exception as erro2:
                 # Nem a queda funcionou. Responder mesmo assim: uma excecao
@@ -153,7 +158,30 @@ class Roteador:
                 fornecedor=escolha.fornecedor,
             )
 
-        return self._formatar(resultado, escolha, indice)
+        resposta = self._formatar(resultado, escolha, indice)
+        self._lembrar(pergunta, escolha, resultado)
+        return resposta
+
+    def _lembrar(self, pergunta: str, escolha, resultado: E.Resultado) -> None:
+        """Guarda o turno com os numeros, para a proxima pergunta se apoiar."""
+        detalhe = None
+        if resultado.linhas:
+            detalhe = "; ".join(
+                f"{l.rotulo}: {nz.moeda(l.valor)}"
+                for l in resultado.linhas[:12]
+                if l.valor is not None
+            )
+        self._historico.append(
+            {
+                "pergunta": pergunta,
+                "consulta": escolha.consulta,
+                "parametros": escolha.parametros,
+                "resumo": resultado.resumo,
+                "numeros": {k: round(v, 2) for k, v in resultado.numeros.items()},
+                "detalhe": detalhe,
+            }
+        )
+        del self._historico[:-8]
 
     # -- quando nao entende ------------------------------------------------
 

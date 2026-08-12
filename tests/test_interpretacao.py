@@ -188,3 +188,90 @@ def test_categoria_e_extraida(p):
     assert p.escolher("quanto gastamos com aluguel?", "").parametros.get(
         "categoria"
     ) == "ALUGUEL"
+
+
+# ---------------------------------------------------------------------------
+# Continuidade da conversa
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "frase",
+    [
+        "isso é apenas de honorário mensal ou é despesa operacional no total?",
+        "e o resto?",
+        "esse valor inclui folha?",
+        "por que tanto?",
+    ],
+)
+def test_pergunta_de_continuidade_nao_repete_a_consulta(p, frase):
+    """Pergunta sobre a resposta anterior nao pode devolver a mesma coisa.
+
+    Foi o que aconteceu num teste real: o usuario perguntou se o total era so
+    de honorario, e recebeu de novo o mesmo card de despesas por categoria.
+    """
+    historico = [{
+        "pergunta": "quanto gastamos em 2026?",
+        "consulta": "despesas_por_categoria",
+        "parametros": {"ano": 2026},
+        "resumo": "R$ 3.964.969,70 em despesa operacional em 2026.",
+        "numeros": {"total": 3964969.70, "categorias": 40},
+        "detalhe": "Remuneracao: R$ 2.083.130,49",
+    }]
+    escolha = p.escolher(frase, "", historico)
+    assert escolha.consulta is None, (
+        f"'{frase}' repetiu a consulta '{escolha.consulta}' em vez de "
+        f"responder sobre o turno anterior."
+    )
+    assert escolha.resposta_livre, "Deve explicar por que não consegue."
+
+
+def test_sem_historico_nao_trata_como_continuidade(p):
+    """Na primeira mensagem nao ha turno anterior a que se referir."""
+    escolha = p.escolher("quanto gastamos com aluguel?", "", [])
+    assert escolha.consulta == "despesas_por_categoria"
+
+
+def test_anthropic_manda_o_historico_como_turnos():
+    """O historico precisa ir como mensagens, nao colado no system.
+
+    Sem isso o modelo nao tem a que se referir quando a pessoa diz "isso".
+    """
+    from app.llm.provedores import ProvedorAnthropic
+
+    capturado = {}
+
+    class FakeMessages:
+        def create(self, **kwargs):
+            capturado.update(kwargs)
+
+            class R:
+                content = [type("B", (), {"type": "text", "text": '{"consulta": null, "resposta_livre": "ok"}'})()]
+
+            return R()
+
+    class FakeCliente:
+        messages = FakeMessages()
+
+    prov = ProvedorAnthropic(E.CATALOGO)
+    prov._cliente = FakeCliente()
+
+    historico = [{
+        "pergunta": "quanto gastamos em 2026?",
+        "consulta": "despesas_por_categoria",
+        "parametros": {"ano": 2026},
+        "resumo": "R$ 3.964.969,70 em despesa operacional.",
+        "numeros": {"total": 3964969.70},
+        "detalhe": "Remuneracao: R$ 2.083.130,49",
+    }]
+    prov.escolher("isso inclui folha?", "CATALOGO", historico)
+
+    mensagens = capturado["messages"]
+    assert len(mensagens) == 3, "Esperava turno anterior (2) + pergunta atual"
+    assert mensagens[0]["role"] == "user"
+    assert mensagens[1]["role"] == "assistant"
+    assert "3964969.7" in mensagens[1]["content"], (
+        "O resumo do turno precisa carregar os números, senão o modelo não "
+        "consegue responder sem refazer a consulta."
+    )
+    assert mensagens[2]["content"] == "isso inclui folha?"

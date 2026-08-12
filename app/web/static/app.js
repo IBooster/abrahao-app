@@ -40,7 +40,11 @@
     quantidade: "Quantidade"
   };
 
-  var SEM_MOEDA = { margem_pct: true, lancamentos: true, notas: true, quantidade: true };
+  /* Contagem nao e dinheiro. Sem isto, "40 categorias" vira "R$ 40,00". */
+  var SEM_MOEDA = {
+    margem_pct: true, lancamentos: true, notas: true, quantidade: true,
+    categorias: true, clientes: true
+  };
 
   function esc(t) {
     return String(t == null ? "" : t)

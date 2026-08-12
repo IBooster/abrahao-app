@@ -110,10 +110,30 @@ class ProvedorRegras(Provedor):
     def disponivel(self) -> bool:
         return True
 
-    def escolher(self, pergunta: str, contexto: str) -> Escolha:
+    def escolher(
+        self, pergunta: str, contexto: str, historico: Optional[list] = None
+    ) -> Escolha:
         texto = pergunta.strip()
         baixo = nz.sem_acento(texto.lower())
         hoje = dt.date.today()
+
+        # Pergunta de continuidade sobre a resposta anterior. O interpretador
+        # local nao tem como responder de verdade - ele so casa padrao -, mas
+        # repetir a mesma consulta e pior: parece que o chat travou.
+        if historico and self._e_continuidade(baixo):
+            return Escolha(
+                consulta=None,
+                resposta_livre=(
+                    "Essa é uma pergunta sobre a resposta anterior, e para "
+                    "responder direito eu preciso interpretar o que você "
+                    "quis dizer. Neste servidor estou sem a chave da API, "
+                    "então trabalho por palavra-chave e não consigo.\n\n"
+                    "Reformule como pergunta fechada, por exemplo: "
+                    "\"quanto gastamos com freelancer em 2026?\" ou "
+                    "\"em que gastamos mais este mês?\"."
+                ),
+                fornecedor=self.nome,
+            )
 
         # Pergunta vence verbo de acao: "Quais guias pagamos?" e consulta,
         # "Pagamos a guia da Maria" e pedido de lancamento.
@@ -208,6 +228,18 @@ class ProvedorRegras(Provedor):
             if termo in baixo:
                 return self._CATEGORIAS[termo]
         return None
+
+    # Marcas de pergunta que se apoia no turno anterior.
+    _CONTINUIDADE = (
+        "isso e", "isso inclui", "isso ai", "esse valor", "esse numero",
+        "esse total", "essa conta", "e o resto", "e o restante", "e o que sobra",
+        "por que tanto", "por que esta", "so isso", "apenas de", "somente de",
+        "ou e ", "quer dizer", "como assim", "explica", "detalha", "e disso",
+        "desse total", "desse valor", "nesse numero", "nesse total",
+    )
+
+    def _e_continuidade(self, baixo: str) -> bool:
+        return any(m in baixo for m in self._CONTINUIDADE)
 
     # -- lancamentos -------------------------------------------------------
 
@@ -554,18 +586,55 @@ class ProvedorAnthropic(Provedor):
             )
         return self._cliente
 
-    def escolher(self, pergunta: str, contexto: str) -> Escolha:
+    def escolher(
+        self, pergunta: str, contexto: str, historico: Optional[list] = None
+    ) -> Escolha:
         cliente = self._obter_cliente()
+
+        # O historico vai como turnos de verdade, nao como texto colado no
+        # system: e o que faz "isso inclui folha?" ter a que se referir.
+        mensagens: list[dict[str, Any]] = []
+        for turno in (historico or [])[-6:]:
+            mensagens.append({"role": "user", "content": turno["pergunta"]})
+            mensagens.append(
+                {"role": "assistant", "content": self._resumir_turno(turno)}
+            )
+        mensagens.append({"role": "user", "content": pergunta})
+
         resposta = cliente.messages.create(
             model=self.modelo,
-            max_tokens=400,
+            max_tokens=700,
             system=INSTRUCAO + "\n\n" + contexto,
-            messages=[{"role": "user", "content": pergunta}],
+            messages=mensagens,
         )
         bruto = "".join(
             bloco.text for bloco in resposta.content if bloco.type == "text"
         ).strip()
         return self._interpretar(bruto)
+
+    @staticmethod
+    def _resumir_turno(turno: dict) -> str:
+        """O que o modelo ve do que ele proprio respondeu antes.
+
+        Precisa carregar os NUMEROS, senao ele nao tem como responder "isso
+        inclui folha?" sem refazer a consulta.
+        """
+        partes = [json.dumps(
+            {"consulta": turno.get("consulta"), "parametros": turno.get("parametros")},
+            ensure_ascii=False,
+        )]
+        if turno.get("resumo"):
+            partes.append(f"Respondi: {turno['resumo']}")
+        numeros = turno.get("numeros") or {}
+        if numeros:
+            partes.append(
+                "Números: "
+                + ", ".join(f"{k}={v}" for k, v in numeros.items())
+            )
+        detalhe = turno.get("detalhe")
+        if detalhe:
+            partes.append("Detalhamento: " + detalhe)
+        return "\n".join(partes)
 
     def _interpretar(self, bruto: str) -> Escolha:
         texto = bruto.strip()
